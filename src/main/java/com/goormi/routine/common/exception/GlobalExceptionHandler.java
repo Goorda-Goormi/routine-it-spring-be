@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.goormi.routine.common.response.ApiResponse;
+import com.goormi.routine.domain.user.exception.DuplicateNicknameException;
+import com.goormi.routine.domain.user.exception.UserNotFoundException;
 
 import lombok.extern.slf4j.Slf4j;
 

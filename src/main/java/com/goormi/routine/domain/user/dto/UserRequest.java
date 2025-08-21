@@ -7,11 +7,11 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-@Getter
-@NoArgsConstructor
-@AllArgsConstructor
 public class UserRequest {
 
+	@Getter
+	@NoArgsConstructor
+	@AllArgsConstructor
 	public static class UpdateProfile {
 		@NotBlank(message = "닉네임은 필수입니다")
 		@Size(min = 2, max = 50, message = "닉네임은 2-50자여야 합니다")
@@ -24,6 +24,9 @@ public class UserRequest {
 		private String profileImageUrl;
 	}
 
+	@Getter
+	@NoArgsConstructor
+	@AllArgsConstructor
 	public static class UpdateSettings {
 		@NotNull(message = "알림 설정은 필수입니다")
 		private Boolean isAlarmOn;
