@@ -29,7 +29,6 @@ public class JwtUtil {
 	@Value("${jwt.refresh-token-validity}")
 	private long refreshTokenValidity;
 
-	// SecretKey 생성 (최신 방식)
 	private SecretKey getSigningKey() {
 		return Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
 	}
@@ -77,5 +76,22 @@ public class JwtUtil {
 			.parseClaimsJws(token)
 			.getBody();
 		return Long.parseLong(claims.getSubject());
+	}
+
+	public long getTokenRemainingTime(String token) {
+		try {
+			Claims claims = Jwts.parser()
+				.setSigningKey(getSigningKey())
+				.parseClaimsJws(token)
+				.getBody();
+
+			Date expiration = claims.getExpiration();
+			Date now = new Date();
+
+			return Math.max(0, expiration.getTime() - now.getTime());
+		} catch (Exception e) {
+			log.warn("Failed to get token remaining time: {}", e.getMessage());
+			return 0;
+		}
 	}
 }
