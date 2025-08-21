@@ -6,6 +6,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -15,6 +17,8 @@ import lombok.Setter;
 @Getter
 @Setter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class User {
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,9 +34,11 @@ public class User {
 	@Column(name = "profile_image_url")
 	private String profileImageUrl;
 
+	@Builder.Default
 	@Column(name = "is_alarm_on", nullable = false)
 	private Boolean isAlarmOn = true;
 
+	@Builder.Default
 	@Column(name = "is_dark_mode", nullable = false)
 	private Boolean isDarkMode = false;
 
@@ -43,4 +49,15 @@ public class User {
 	@UpdateTimestamp
 	@Column(name = "updated_at", nullable = false)
 	private LocalDateTime updatedAt;
+
+	public void updateProfile(String nickname, String profileMessage, String profileImageUrl) {
+		this.nickname = nickname;
+		this.profileMessage = profileMessage;
+		this.profileImageUrl = profileImageUrl;
+	}
+
+	public void updateSettings(Boolean isAlarmOn, Boolean isDarkMode) {
+		this.isAlarmOn = isAlarmOn;
+		this.isDarkMode = isDarkMode;
+	}
 }

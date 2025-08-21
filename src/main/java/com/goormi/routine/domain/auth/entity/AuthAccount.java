@@ -2,6 +2,8 @@ package com.goormi.routine.domain.auth.entity;
 
 import com.goormi.routine.domain.user.entity.User;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -12,8 +14,11 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "auth_accounts")
-@Getter @Setter
+@Getter
+@Setter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class AuthAccount {
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,6 +35,7 @@ public class AuthAccount {
 	@Column(name = "refresh_token")
 	private String refreshToken;
 
+	@Builder.Default
 	@Column(name = "is_active", nullable = false)
 	private Boolean isActive = true;
 
@@ -40,4 +46,16 @@ public class AuthAccount {
 	@UpdateTimestamp
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
+
+	public void deactivate() {
+		this.isActive = false;
+	}
+
+	public void updateRefreshToken(String refreshToken) {
+		this.refreshToken = refreshToken;
+	}
+
+	public void clearRefreshToken() {
+		this.refreshToken = null;
+	}
 }
