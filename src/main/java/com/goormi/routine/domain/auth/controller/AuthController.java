@@ -1,83 +1,113 @@
 package com.goormi.routine.domain.auth.controller;
 
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
-import com.goormi.routine.common.util.JwtUtil;
-import com.goormi.routine.domain.auth.annotation.CurrentUser;
-import com.goormi.routine.domain.auth.dto.AuthResponse;
-import com.goormi.routine.domain.auth.dto.KakaoLoginRequest;
-import com.goormi.routine.domain.auth.service.SimpleAuthService;
-import com.goormi.routine.domain.auth.service.TokenService;
-import com.goormi.routine.domain.user.service.UserService;
-
+import com.goormi.routine.common.response.ApiResponse;
+import com.goormi.routine.domain.auth.dto.*;
+import com.goormi.routine.domain.auth.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import jakarta.validation.Valid;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
 
-@Tag(name = "인증 API", description = "로그인 및 회원 관리")
+@Slf4j
+@Tag(name = "인증", description = "인증 관련 API")
 @RestController
-@RequestMapping("/auth")
+@RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
-
-	private final UserService userService;
-	private final SimpleAuthService simpleAuthService;
-	private final TokenService tokenService;
-	private final JwtUtil jwtUtil;
-
-	@Operation(summary = "카카오 로그인", description = "카카오 인가 코드를 이용해 로그인하거나 회원가입합니다.")
-	@ApiResponses(value = {
-		@ApiResponse(responseCode = "200", description = "로그인 성공",
-			content = @Content(schema = @Schema(implementation = AuthResponse.class))),
-		@ApiResponse(responseCode = "400", description = "잘못된 요청")
-	})
-	@PostMapping("/kakao")
-	public ResponseEntity<AuthResponse> kakaoLogin(
-		@Valid @RequestBody KakaoLoginRequest request) {
-
-		AuthResponse response = simpleAuthService.processKakaoLogin(request.getCode());
-		return ResponseEntity.ok(response);
-	}
-
-	@Operation(summary = "로그아웃", description = "현재 사용자의 리프레시 토큰을 삭제하고, 액세스 토큰을 블랙리스트에 추가합니다.")
-	@ApiResponses(value = {
-		@ApiResponse(responseCode = "200", description = "로그아웃 완료"),
-		@ApiResponse(responseCode = "400", description = "잘못된 요청 또는 토큰 오류")
-	})
-	@PostMapping("/logout")
-	public ResponseEntity<Void> logout(
-		@Parameter(hidden = true) @RequestHeader("Authorization") String authorization,
-		@Parameter(hidden = true) @CurrentUser Long userId) {
-
-		String accessToken = authorization.replace("Bearer ", "");
-		long remainingTime = System.currentTimeMillis() + jwtUtil.getAccessTokenValidity();
-		tokenService.addToBlacklist(accessToken, remainingTime);
-
-		userService.clearRefreshToken(userId);
-
-		return ResponseEntity.ok().build();
-	}
-
-	@Operation(summary = "회원 탈퇴", description = "사용자 계정을 비활성화합니다.")
-	@ApiResponses(value = {
-		@ApiResponse(responseCode = "200", description = "회원 탈퇴 완료"),
-		@ApiResponse(responseCode = "400", description = "잘못된 요청")
-	})
-	@DeleteMapping("/signout")
-	public ResponseEntity<Void> signOut(@Parameter(hidden = true) @CurrentUser Long userId) {
-		userService.deactivateUser(userId);
-		return ResponseEntity.ok().build();
-	}
+    
+    private final AuthService authService;
+    
+    @Operation(summary = "닉네임 중복 체크", description = "닉네임 중복 여부를 확인합니다")
+    @PostMapping("/check-nickname")
+    public ApiResponse<Boolean> checkNickname(@RequestBody NicknameCheckRequest request) {
+        boolean isAvailable = authService.isNicknameAvailable(request.nickname());
+        return ApiResponse.success(isAvailable);
+    }
+    
+    @Operation(summary = "회원가입 완료", description = "닉네임을 설정하여 회원가입을 완료합니다")
+    @PostMapping("/signup")
+    public ApiResponse<UserInfoResponse> completeSignup(
+            @AuthenticationPrincipal Long userId,
+            @RequestBody SignupRequest request
+    ) {
+        UserInfoResponse response = authService.completeSignup(userId, request.nickname());
+        return ApiResponse.success(response);
+    }
+    
+    @Operation(summary = "내 정보 조회", description = "현재 로그인한 사용자의 정보를 조회합니다")
+    @GetMapping("/me")
+    public ApiResponse<UserInfoResponse> getMyInfo(@AuthenticationPrincipal Long userId) {
+        UserInfoResponse response = authService.getUserInfo(userId);
+        return ApiResponse.success(response);
+    }
+    
+    @Operation(summary = "토큰 갱신", description = "리프레시 토큰을 사용하여 새로운 액세스 토큰을 발급합니다")
+    @PostMapping("/refresh")
+    public ApiResponse<TokenResponse> refreshToken(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        // 쿠키에서 refresh token 추출
+        String refreshToken = null;
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if ("refreshToken".equals(cookie.getName())) {
+                    refreshToken = cookie.getValue();
+                    break;
+                }
+            }
+        }
+        
+        if (refreshToken == null) {
+            throw new IllegalArgumentException("리프레시 토큰이 없습니다.");
+        }
+        
+        TokenResponse tokenResponse = authService.refreshToken(refreshToken);
+        
+        // 새로운 refresh token을 쿠키에 저장
+        Cookie newRefreshTokenCookie = new Cookie("refreshToken", tokenResponse.refreshToken());
+        newRefreshTokenCookie.setHttpOnly(true);
+        newRefreshTokenCookie.setSecure(false); // HTTPS 환경에서는 true로 설정
+        newRefreshTokenCookie.setPath("/");
+        newRefreshTokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7일
+        response.addCookie(newRefreshTokenCookie);
+        
+        return ApiResponse.success(tokenResponse);
+    }
+    
+    @Operation(summary = "로그아웃", description = "현재 사용자를 로그아웃합니다")
+    @PostMapping("/logout")
+    public ApiResponse<Void> logout(
+            @AuthenticationPrincipal Long userId,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        String token = extractToken(request);
+        authService.logout(userId, token);
+        
+        // Refresh Token 쿠키 삭제
+        Cookie refreshTokenCookie = new Cookie("refreshToken", null);
+        refreshTokenCookie.setHttpOnly(true);
+        refreshTokenCookie.setSecure(false);
+        refreshTokenCookie.setPath("/");
+        refreshTokenCookie.setMaxAge(0); // 즉시 만료
+        response.addCookie(refreshTokenCookie);
+        
+        log.info("User {} logged out successfully", userId);
+        return ApiResponse.success(null);
+    }
+    
+    private String extractToken(HttpServletRequest request) {
+        String bearerToken = request.getHeader("Authorization");
+        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
+            return bearerToken.substring(7);
+        }
+        return null;
+    }
 }

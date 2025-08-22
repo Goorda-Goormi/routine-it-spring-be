@@ -1,15 +1,11 @@
 package com.goormi.routine.domain.auth.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-
-@Getter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
-public class TokenResponse {
-	private String accessToken;
-	private String refreshToken;
+public record TokenResponse(
+        String accessToken,
+        String refreshToken,
+        Long expiresIn
+) {
+    public static TokenResponse of(String accessToken, String refreshToken, Long expiresIn) {
+        return new TokenResponse(accessToken, refreshToken, expiresIn);
+    }
 }

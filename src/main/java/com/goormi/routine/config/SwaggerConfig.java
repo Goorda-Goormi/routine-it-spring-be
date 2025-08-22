@@ -39,6 +39,10 @@ public class SwaggerConfig {
         Server dockerServer = new Server()
                 .url("http://localhost:8080")
                 .description("Docker Development Server");
+
+        Server developmentServer = new Server()
+                .url("http://54.180.93.1:8080")
+                .description("Development Server");
         
         Info info = new Info()
                 .title("Routine-It API")
@@ -54,7 +58,7 @@ public class SwaggerConfig {
         
         return new OpenAPI()
                 .info(info)
-                .servers(List.of(localServer, dockerServer))
+                .servers(List.of(localServer, dockerServer, developmentServer))
                 .addSecurityItem(securityRequirement)
                 .components(components);
     }
