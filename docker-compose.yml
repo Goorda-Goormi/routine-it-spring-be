@@ -7,6 +7,7 @@ services:
     container_name: routine-app
     ports:
       - "${APP_PORT}:8080"
+      - "8000:8000"
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-docker}
       - DB_HOST=${DB_HOST}
@@ -29,6 +30,7 @@ services:
       - SPRING_TASK_SCHEDULING_POOL_SIZE=${SCHEDULER_POOL_SIZE}
       - SCHEDULER_MONTHLY_ENABLED=${MONTHLY_SCHEDULER_ENABLED}
       - SCHEDULER_RETRY_ENABLED=${RETRY_SCHEDULER_ENABLED}
+      - JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:8000
     depends_on:
       - db
       - redis

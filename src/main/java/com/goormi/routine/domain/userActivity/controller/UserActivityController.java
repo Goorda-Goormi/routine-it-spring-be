@@ -93,14 +93,22 @@ public class UserActivityController {
         return ResponseEntity.ok(userActivityService.hasAttendanceOn(userId, date));
     }
 
-    @Operation(summary = "오늘 기준 연속 출석 일수", description = "baseDate를 주면 그 날짜를 기준으로 계산합니다. 없으면 KST 오늘 기준.")
-    @GetMapping("/attendance/streak")
-    public ResponseEntity<Integer> getConsecutiveAttendance(
+    @Operation(
+            summary = "누적 출석 일수",
+            description = "startDate~endDate 기간 동안 출석으로 인정된 서로 다른 '일자'의 개수를 반환합니다. " +
+                    "파라미터를 생략하면 전체 기간(1970-01-01 ~ 오늘[KST])로 계산합니다." + " 타유저 id 값이 없으면 본인 누적출석일 조회, 있으면 타유저 누적 출석일 조회"
+    )
+    @GetMapping("/attendance/total")
+    public ResponseEntity<Integer> getTotalAttendanceDays(
             @AuthenticationPrincipal Long userId,
-            @RequestParam(value = "baseDate", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate baseDate
+            @RequestParam(required = false) Long targetUserId,
+            @RequestParam(value = "startDate", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(value = "endDate", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
     ) {
-        int streak = userActivityService.getConsecutiveAttendanceDays(userId, baseDate);
-        return ResponseEntity.ok(streak);
+        Long id = targetUserId != null ? targetUserId : userId;
+        int total = userActivityService.getTotalAttendanceDays(id, startDate, endDate);
+        return ResponseEntity.ok(total);
     }
 }

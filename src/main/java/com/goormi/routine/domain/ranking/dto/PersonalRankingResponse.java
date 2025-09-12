@@ -20,6 +20,7 @@ public class PersonalRankingResponse {
 	private String monthYear;
 	private Integer consecutiveDays;
 	private List<GroupRankingDetail> groupDetails;
+	private Boolean isCurrentUser;
 
 	@JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss")
 	private LocalDateTime updatedAt;

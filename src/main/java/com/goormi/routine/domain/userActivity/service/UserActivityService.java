@@ -18,7 +18,7 @@ public interface UserActivityService {
 
 
     //출석
-    int getConsecutiveAttendanceDays(Long userId, LocalDate today);
-
     boolean hasAttendanceOn(Long userId, LocalDate date);
+    //누적출석일수
+    int getTotalAttendanceDays(Long userId, LocalDate startDate, LocalDate endDate);
 }

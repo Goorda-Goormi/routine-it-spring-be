@@ -12,12 +12,15 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/rankings")
@@ -34,7 +37,7 @@ public class RankingController {
 			"새로운 월이 되면 자동으로 랭킹이 초기화됩니다."
 	)
 	@GetMapping("/personal")
-	public ApiResponse<List<PersonalRankingResponse>> getPersonalRankings(
+	public ApiResponse<Page<PersonalRankingResponse>> getPersonalRankings(
 		@Parameter(description = "조회할 월 (YYYY-MM 형식), 미입력시 현재 월")
 		@RequestParam(required = false) String monthYear,
 		@Parameter(description = "페이지 번호 (0부터 시작)")
@@ -42,7 +45,13 @@ public class RankingController {
 		@Parameter(description = "페이지 크기")
 		@RequestParam(defaultValue = "10") Integer size,
 		@CurrentUser Long userId) {
-		List<PersonalRankingResponse> rankings = rankingService.getPersonalRankings();
+		if (monthYear == null || monthYear.trim().isEmpty()) {
+			monthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+		}
+
+		Pageable pageable = PageRequest.of(page, size);
+		Page<PersonalRankingResponse> rankings = rankingService.getPersonalRankings(monthYear, pageable, userId);
+
 		return ApiResponse.success("개인 랭킹 조회가 완료되었습니다.", rankings);
 	}
 
@@ -51,7 +60,7 @@ public class RankingController {
 		description = "그룹의 점수를 합산하여 전체 그룹 랭킹을 조회합니다. " + "새로운 월이 되면 자동으로 랭킹이 초기화됩니다."
 	)
 	@GetMapping("/groups/global")
-	public ApiResponse<List<GlobalGroupRankingResponse>> getGlobalGroupRankings(
+	public ApiResponse<Page<GlobalGroupRankingResponse.GroupRankingItem>> getGlobalGroupRankings(
 		@Parameter(description = "조회할 월 (YYYY-MM 형식), 미입력시 현재 월")
 		@RequestParam(required = false) String monthYear,
 		@Parameter(description = "그룹 카테고리 필터 (운동, 독서, 취미 등)")
@@ -62,7 +71,14 @@ public class RankingController {
 		@RequestParam(defaultValue = "0") Integer page,
 		@Parameter(description = "페이지 크기")
 		@RequestParam(defaultValue = "20") Integer size) {
-		List<GlobalGroupRankingResponse> rankings = rankingService.getGlobalGroupRankings();
+		if (monthYear == null || monthYear.trim().isEmpty()) {
+			monthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+		}
+
+		Pageable pageable = PageRequest.of(page, size);
+		Page<GlobalGroupRankingResponse.GroupRankingItem> rankings =
+			rankingService.getGlobalGroupRankings(monthYear, category, groupType, pageable);
+
 		return ApiResponse.success("그룹 랭킹 조회가 완료되었습니다.", rankings);
 	}
 
@@ -75,9 +91,12 @@ public class RankingController {
 		@Parameter(description = "그룹 ID", required = true)
 		@PathVariable Long groupId,
 		@Parameter(description = "조회할 월 (YYYY-MM 형식), 미입력시 현재 월")
-		@RequestParam(required = false) String monthYear,
-		@CurrentUser Long userId) {
-		GroupTop3RankingResponse response = rankingService.getTop3RankingsByGroup(groupId);
+		@RequestParam(required = false) String monthYear) {
+		if (monthYear == null || monthYear.trim().isEmpty()) {
+			monthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+		}
+
+		GroupTop3RankingResponse response = rankingService.getTop3RankingsByGroup(groupId, monthYear);
 		return ApiResponse.success("그룹 Top3 랭킹 조회가 완료되었습니다.", response);
 	}
 

@@ -73,7 +73,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // 크로스 도메인 허용
         String cookieHeader = String.format(
-            "refreshToken=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=None",
+            "refreshToken=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=None; Secure",
             refreshToken,
             7 * 24 * 60 * 60
         );

@@ -20,10 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 @Service
 @Transactional
@@ -153,26 +150,30 @@ public class UserActivityServiceImpl implements UserActivityService{
     }
 
 
-    //연속출석부분
     @Override
     @Transactional(readOnly = true)
-    public int getConsecutiveAttendanceDays(Long userId, LocalDate today) {
-        // today가 null이면 KST 기준 오늘로
-        LocalDate base = (today != null) ? today : LocalDate.now(ZoneId.of("Asia/Seoul"));
+    public int getTotalAttendanceDays(Long userId, LocalDate startDate, LocalDate endDate) {
+        // 기본값 처리
+        LocalDate end = (endDate != null) ? endDate : LocalDate.now(ZoneId.of("Asia/Seoul"));
+        LocalDate start = (startDate != null) ? startDate : LocalDate.of(1970, 1, 1);
 
-        int streak = 0;
-        LocalDate cursor = base;
-
-        while (true) {
-            boolean attended = userActivityRepository
-                    .existsByUserIdAndActivityDateAndActivityTypeIn(
-                            userId, cursor, ATTENDANCE_TYPES.stream().toList()
-                    );
-            if (!attended) break;
-
-            streak++;
-            cursor = cursor.minusDays(1);
+        // 기간 역전 방지
+        if (end.isBefore(start)) {
+            throw new IllegalArgumentException("endDate must be on or after startDate");
         }
-        return streak;
+
+        // 기간 내 '출석 인정' 타입들의 활동을 모두 가져온 뒤, activityDate 기준으로 distinct
+        List<UserActivity> records = userActivityRepository
+                .findByUserIdAndActivityTypeInAndActivityDateBetween(
+                        userId, ATTENDANCE_TYPES.stream().toList(), start, end
+                );
+
+        Set<LocalDate> distinctDays = new HashSet<>();
+        for (UserActivity ua : records) {
+            if (ua.getActivityDate() != null) {
+                distinctDays.add(ua.getActivityDate());
+            }
+        }
+        return distinctDays.size();
     }
 }

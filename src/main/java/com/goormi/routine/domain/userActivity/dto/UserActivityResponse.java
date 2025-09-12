@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @Getter
 @Builder
 public class UserActivityResponse {
+    private Long userActivityId;
     private Long userId;
     private ActivityType activityType;
     private LocalDate activityDate;
@@ -35,6 +36,7 @@ public class UserActivityResponse {
 
     public static UserActivityResponse fromPersonalActivity(UserActivity userActivity) {
         return UserActivityResponse.builder()
+                .userActivityId(userActivity.getId())
                 .userId(userActivity.getUser().getId())
                 .activityType(userActivity.getActivityType())
                 .activityDate(userActivity.getActivityDate())
@@ -48,6 +50,7 @@ public class UserActivityResponse {
 
     public static UserActivityResponse fromGroupActivity(UserActivity userActivity) {
         return UserActivityResponse.builder()
+                .userActivityId(userActivity.getId())
                 .userId(userActivity.getUser().getId())
                 .activityType(userActivity.getActivityType())
                 .activityDate(userActivity.getActivityDate())
