@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 @Builder
 public class GroupMemberResponse {
 
+    private Long userId;
     private Long groupMemberId;
     private String groupName;
     private String memberName;
@@ -26,6 +27,7 @@ public class GroupMemberResponse {
 
     public static  GroupMemberResponse from(GroupMember groupMember) {
         return GroupMemberResponse.builder()
+                .userId(groupMember.getUser().getId())
                 .groupMemberId(groupMember.getMemberId())
                 .groupName(groupMember.getGroup().getGroupName())
                 .memberName(groupMember.getUser().getNickname())
@@ -37,6 +39,7 @@ public class GroupMemberResponse {
     }
     public static  GroupMemberResponse from(GroupMember groupMember,Boolean isAuthToday) {
         return GroupMemberResponse.builder()
+                .userId(groupMember.getUser().getId())
                 .groupMemberId(groupMember.getMemberId())
                 .groupName(groupMember.getGroup().getGroupName())
                 .memberName(groupMember.getUser().getNickname())

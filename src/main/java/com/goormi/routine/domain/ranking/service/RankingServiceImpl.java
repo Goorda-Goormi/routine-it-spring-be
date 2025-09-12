@@ -86,14 +86,16 @@ public class RankingServiceImpl implements RankingService {
 	public List<GlobalGroupRankingResponse> getGlobalGroupRankings() {
 		String monthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
 
-		List<Ranking> groupRankings = rankingRepository.findGroupRankingsOrderByScore();
+		List<Object[]> groupScoreResults = rankingRepository.findGroupTotalScoresOrderByScore();
 
-		List<GroupScoreData> groupScoreList = groupRankings.stream()
-			.map(ranking -> {
-				Long groupId = ranking.getGroupId();
-				Group group = ranking.getGroup();
+		List<GroupScoreData> groupScoreList = groupScoreResults.stream()
+			.map(result -> {
+				Long groupId = (Long) result[0];
+				Integer membersTotalScore = ((Number) result[1]).intValue();
 
-				int membersTotalScore = calculateGroupMembersTotalScore(groupId);
+				Group group = rankingRepository.findByGroupId(groupId)
+					.map(Ranking::getGroup)
+					.orElse(null);
 
 				int participationBonus = calculateSimpleParticipationBonus(groupId, monthYear);
 

@@ -8,4 +8,6 @@ public interface ReviewService {
 	void sendUserReviewMessage(Long userId, String monthYear);
 	void retryFailedMessages(String monthYear);
 	int getFailedMessageCount(String monthYear);
+
+	MonthlyReviewResponse getMonthlyReview(Long userId, String monthYear);
 }

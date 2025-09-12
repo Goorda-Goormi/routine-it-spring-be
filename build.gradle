@@ -41,6 +41,10 @@ dependencies {
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
+
+	// === AWS SDK v2 for S3 (Presigner용) ===
+	implementation platform('software.amazon.awssdk:bom:2.25.60')
+	implementation 'software.amazon.awssdk:s3'
 	
 	// Redis 관련 의존성
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'

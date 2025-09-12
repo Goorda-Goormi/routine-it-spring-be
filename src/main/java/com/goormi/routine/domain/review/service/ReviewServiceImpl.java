@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -192,6 +193,28 @@ public class ReviewServiceImpl implements ReviewService{
 		} catch (Exception e) {
 			log.error("월간 회고 계산 실패: 사용자 ID = {}, 월 = {}", userId, monthYear, e);
 			throw new RuntimeException("회고 계산 중 오류가 발생했습니다.", e);
+		}
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public MonthlyReviewResponse getMonthlyReview(Long userId, String monthYear) {
+		if (userId == null) {
+			throw new IllegalArgumentException("사용자 ID는 필수입니다.");
+		}
+
+		String reviewData = reviewRedisRepository.getReviewData(userId.toString(), monthYear);
+
+		if (reviewData == null) {
+			// Redis에 데이터가 없으면 새로 계산해서 반환 (저장하지 않음)
+			return calculateMonthlyReview(userId, monthYear);
+		}
+
+		try {
+			return parseReviewData(reviewData);
+		} catch (Exception e) {
+			log.error("회고 데이터 파싱 실패. 새로 계산합니다. 사용자 ID: {}, 월: {}", userId, monthYear, e);
+			return calculateMonthlyReview(userId, monthYear);
 		}
 	}
 

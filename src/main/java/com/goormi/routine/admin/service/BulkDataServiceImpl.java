@@ -1,6 +1,16 @@
 package com.goormi.routine.admin.service;
 
 import com.goormi.routine.admin.dto.BulkDataResponse;
+import com.goormi.routine.domain.chat.dto.ChatMessageDto;
+import com.goormi.routine.domain.chat.entity.ChatMember;
+import com.goormi.routine.domain.chat.entity.ChatMessage;
+import com.goormi.routine.domain.chat.entity.ChatRoom;
+import com.goormi.routine.domain.chat.repository.ChatMemberRepository;
+import com.goormi.routine.domain.chat.repository.ChatMessageRepository;
+import com.goormi.routine.domain.chat.repository.ChatRoomRepository;
+import com.goormi.routine.domain.group.entity.Group;
+import com.goormi.routine.domain.group.entity.GroupType;
+import com.goormi.routine.domain.group.repository.GroupRepository;
 import com.goormi.routine.domain.user.entity.User;
 import com.goormi.routine.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -8,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,6 +32,10 @@ import java.util.concurrent.ThreadLocalRandom;
 public class BulkDataServiceImpl implements BulkDataService {
 
 	private final UserRepository userRepository;
+    private final GroupRepository groupRepository;
+    private final ChatRoomRepository chatRoomRepository;
+    private final ChatMemberRepository chatMemberRepository;
+    private final ChatMessageRepository chatMessageRepository;
 
 	@Override
 	@Transactional
@@ -74,7 +90,54 @@ public class BulkDataServiceImpl implements BulkDataService {
 
 	@Override
 	public BulkDataResponse generateGroups(int count) {
-		// TODO
+        User user = User.builder()
+                .kakaoId("maybeLeader")
+                .email("maybeLeader@111.com")
+                .nickname("maybeLeader")
+                .role(User.UserRole.USER)
+                .active(true)
+                .build();
+
+        List<Group> groups = new ArrayList<>();
+        for (long  i = 1L; i <= count; i++) {
+            User leader = userRepository.findById(i).orElse(user);
+
+            if (i > count / 2) {
+                Group study = Group.builder()
+                        .groupName("group_" + i)
+                        .groupType(GroupType.FREE)
+                        .description("testgroup_" + i)
+                        .leader(leader)
+                        .authDays("0101010")
+                        .alarmTime(LocalTime.now().plusHours(1))
+                        .groupImageUrl("https://example.com/group" + i + ".jpg")
+                        .category("study")
+                        .maxMembers(20)
+                        .build();
+                groups.add(study);
+            } else {
+                Group living = Group.builder()
+                        .groupName("group_" + i)
+                        .groupType(GroupType.REQUIRED)
+                        .description("testgroup_" + i)
+                        .leader(leader)
+                        .authDays("0000010")
+                        .alarmTime(LocalTime.now().plusHours(1))
+                        .groupImageUrl("https://example.com/group" + i + ".jpg")
+                        .category("living")
+                        .maxMembers(20)
+                        .build();
+                groups.add(living);
+            }
+            // 배치 사이즈마다 저장 (메모리 효율성)
+            if (i % 100 == 0) {
+                groupRepository.saveAll(groups);
+                groups.clear();
+                log.info("Users batch saved: {}/{}", i, count);
+            }
+
+        }
+
 		return BulkDataResponse.error("groups", "아직 구현되지 않음 - 팀원 2가 구현 예정");
 	}
 
@@ -86,7 +149,60 @@ public class BulkDataServiceImpl implements BulkDataService {
 
 	@Override
 	public BulkDataResponse generateChatRooms(int count) {
-		// TODO
+        User me =  userRepository.findById(1L).orElseThrow(()->new RuntimeException("user not found"));
+        userRepository.save(me);
+        Group saved = Group.builder()
+                .groupName("group_forChat")
+                .groupType(GroupType.FREE)
+                .description("testgroup_forChat")
+                .leader(me)
+                .authDays("0101010")
+                .alarmTime(LocalTime.now().plusHours(1))
+                .groupImageUrl("https://example.com/groupChat.jpg")
+                .category("study")
+                .maxMembers(20)
+                .build();
+        groupRepository.save(saved);
+
+        ChatRoom chatRoom = ChatRoom.builder()
+                .groupId(saved.getGroupId())
+                .roomName(saved.getGroupName())
+                .description(saved.getGroupName())
+                .maxParticipants(saved.getMaxMembers())
+                .isActive(true)
+                .createdBy(me.getId())
+                .build();
+
+        ChatRoom savedChatRoom = chatRoomRepository.save(chatRoom);
+
+        // 그룹 리더를 채팅방 관리자로 자동 추가
+        ChatMember chatMember = ChatMember.builder()
+                .roomId(savedChatRoom.getId())
+                .userId(me.getId())
+                .role(ChatMember.MemberRole.ADMIN)
+                .isActive(true)
+                .build();
+        chatMemberRepository.save(chatMember);
+
+        List<ChatMessage> messageList = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            ChatMessage message = ChatMessage.builder()
+                    .roomId(savedChatRoom.getId())
+                    .userId(me.getId())
+                    .senderNickname(me.getNickname())
+                    .message("chattingMESSAGE_"+i)
+                    .messageType(ChatMessage.MessageType.TALK)
+                    .build();
+
+            messageList.add(message);
+
+            // 배치 사이즈마다 저장 (메모리 효율성)
+            if (i % 100 == 0) {
+                chatMessageRepository.saveAll(messageList);
+                messageList.clear();
+                log.info("Users batch saved: {}/{}", i, count);
+            }
+        }
 		return BulkDataResponse.error("chat_rooms", "아직 구현되지 않음 - 팀원 1이 구현 예정");
 	}
 
@@ -117,7 +233,7 @@ public class BulkDataServiceImpl implements BulkDataService {
 
 			// 3. 그룹 생성
 			// log.info("Step 3: Generating {} groups", groupCount);
-			// BulkDataResponse groupResult = generateGroups(groupCount);
+			 BulkDataResponse groupResult = generateGroups(groupCount);
 			// details.put("groups", groupResult);
 
 			// 4. 채팅 메시지 생성
