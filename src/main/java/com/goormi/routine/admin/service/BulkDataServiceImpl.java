@@ -114,6 +114,7 @@ public class BulkDataServiceImpl implements BulkDataService {
                         .category("study")
                         .maxMembers(20)
                         .build();
+                study.setInitialValues(study);
                 groups.add(study);
             } else {
                 Group living = Group.builder()
@@ -127,6 +128,7 @@ public class BulkDataServiceImpl implements BulkDataService {
                         .category("living")
                         .maxMembers(20)
                         .build();
+                living.setInitialValues(living);
                 groups.add(living);
             }
             // 배치 사이즈마다 저장 (메모리 효율성)
@@ -163,6 +165,7 @@ public class BulkDataServiceImpl implements BulkDataService {
                 .maxMembers(20)
                 .build();
         groupRepository.save(saved);
+        saved.setInitialValues(saved);
 
         ChatRoom chatRoom = ChatRoom.builder()
                 .groupId(saved.getGroupId())
@@ -171,6 +174,7 @@ public class BulkDataServiceImpl implements BulkDataService {
                 .maxParticipants(saved.getMaxMembers())
                 .isActive(true)
                 .createdBy(me.getId())
+                .createdAt(LocalDateTime.now())
                 .build();
 
         ChatRoom savedChatRoom = chatRoomRepository.save(chatRoom);
@@ -181,6 +185,7 @@ public class BulkDataServiceImpl implements BulkDataService {
                 .userId(me.getId())
                 .role(ChatMember.MemberRole.ADMIN)
                 .isActive(true)
+                .joinedAt(LocalDateTime.now())
                 .build();
         chatMemberRepository.save(chatMember);
 
@@ -192,6 +197,7 @@ public class BulkDataServiceImpl implements BulkDataService {
                     .senderNickname(me.getNickname())
                     .message("chattingMESSAGE_"+i)
                     .messageType(ChatMessage.MessageType.TALK)
+                    .createdAt(LocalDateTime.now())
                     .build();
 
             messageList.add(message);
