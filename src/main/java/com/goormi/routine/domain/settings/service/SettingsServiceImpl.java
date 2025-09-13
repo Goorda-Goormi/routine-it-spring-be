@@ -85,9 +85,7 @@ public class SettingsServiceImpl implements SettingsService {
 	private UserSettings getOrCreateSettings(Long userId) {
 		return userSettingsRepository.findByUserId(userId)
 			.orElseGet(() -> {
-				UserSettings settings = UserSettings.builder()
-					.userId(userId)
-					.build();
+				UserSettings settings = UserSettings.createDefault(userId);
 				return userSettingsRepository.save(settings);
 			});
 	}
