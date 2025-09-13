@@ -1,4 +1,4 @@
-name: Deploy to AWS EC2
+name: Deploy to AWS EC2 Development
 
 on:
   workflow_run:
@@ -29,10 +29,10 @@ jobs:
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             TAG="${{ github.event.inputs.deploy_tag }}"
           else
-            TAG="latest"
+            TAG="develop"
           fi
           echo "deploy_tag=$TAG" >> $GITHUB_OUTPUT
-          echo "🏷️ Deploying tag: $TAG"
+          echo "🏷️ Deploying tag: $TAG to development server"
 
       - name: Setup SSH key
         uses: webfactory/ssh-agent@v0.8.0
@@ -41,26 +41,26 @@ jobs:
 
       - name: Add EC2 to known hosts
         run: |
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.EC2_DEV_HOST }} >> ~/.ssh/known_hosts
 
       - name: Test SSH connection
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_DEV_HOST: ${{ secrets.EC2_DEV_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          echo "🔐 Testing SSH connection..."
-          ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST "echo 'SSH connection successful!'" || {
+          echo "🔐 Testing SSH connection to development server..."
+          ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_DEV_HOST "echo 'SSH connection successful!'" || {
             echo "❌ SSH connection failed"
             echo "Please check:"
             echo "1. EC2_SSH_PRIVATE_KEY contains the full PEM file content"
             echo "2. EC2_USER is 'ec2-user'"
-            echo "3. EC2_HOST is '54.180.93.1'"
+            echo "3. EC2_DEV_HOST is '15.164.98.221'"
             exit 1
           }
 
       - name: Create .env file from secrets
         run: |
-          cat > .env.production << EOF
+          cat > .env.development << EOF
           # Application
           APP_PORT=8080
           SPRING_PROFILES_ACTIVE=docker
@@ -83,8 +83,8 @@ jobs:
           
           # OAuth2 Kakao
           KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}
-          OAUTH_REDIRECT_URI=${{ secrets.OAUTH_REDIRECT_URI }}
-          OAUTH_CALLBACK_URI=${{ secrets.OAUTH_CALLBACK_URI }}
+          OAUTH_REDIRECT_URI=${{ secrets.OAUTH_REDIRECT_URI_DEV }}
+          OAUTH_CALLBACK_URI=${{ secrets.OAUTH_CALLBACK_URI_DEV }}
           
           # CORS
           CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
@@ -114,31 +114,31 @@ jobs:
 
       - name: Copy files to EC2
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_DEV_HOST: ${{ secrets.EC2_DEV_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          echo "📦 Copying deployment files to EC2..."
+          echo "📦 Copying deployment files to development EC2..."
           
           # Create directory if not exists
-          ssh $EC2_USER@$EC2_HOST "mkdir -p /home/$EC2_USER/routine-it-backend"
+          ssh $EC2_USER@$EC2_DEV_HOST "mkdir -p /home/$EC2_USER/routine-it-backend"
           
           # Copy docker-compose.yml
-          scp docker-compose.yml $EC2_USER@$EC2_HOST:/home/$EC2_USER/routine-it-backend/
+          scp docker-compose.yml $EC2_USER@$EC2_DEV_HOST:/home/$EC2_USER/routine-it-backend/
           
           # Copy .env file
-          scp .env.production $EC2_USER@$EC2_HOST:/home/$EC2_USER/routine-it-backend/.env
+          scp .env.development $EC2_USER@$EC2_DEV_HOST:/home/$EC2_USER/routine-it-backend/.env
           
           echo "✅ Files copied successfully"
 
       - name: Deploy to EC2
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_DEV_HOST: ${{ secrets.EC2_DEV_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
           DEPLOY_TAG: ${{ steps.tag.outputs.deploy_tag }}
         run: |
-          echo "🚀 Starting deployment to EC2..."
+          echo "🚀 Starting deployment to development EC2..."
           
-          ssh $EC2_USER@$EC2_HOST << 'ENDSSH'
+          ssh $EC2_USER@$EC2_DEV_HOST << 'ENDSSH'
             set -e
           
             echo "📂 Navigating to application directory..."
@@ -161,7 +161,7 @@ jobs:
             echo "⏳ Waiting for application to be ready..."
             for i in {1..30}; do
               if curl -f http://localhost:8080/api/health/ping > /dev/null 2>&1; then
-                echo "✅ Application is healthy!"
+                echo "✅ Development application is healthy!"
                 break
               fi
               if [ $i -eq 30 ]; then
@@ -176,7 +176,7 @@ jobs:
             echo "🧹 Cleaning up old Docker images..."
             docker image prune -f
           
-            echo "📊 Deployment status:"
+            echo "📊 Development deployment status:"
             docker-compose ps
           
             echo "🔍 Environment variables loaded:"
@@ -185,9 +185,9 @@ jobs:
 
       - name: Health Check
         run: |
-          echo "🔍 Running post-deployment health checks..."
+          echo "🔍 Running post-deployment health checks on development server..."
           
-          curl -f http://${{ secrets.EC2_HOST }}:8080/api/health/ping || {
+          curl -f http://${{ secrets.EC2_DEV_HOST }}:8080/api/health/ping || {
             echo "❌ Health check failed"
             exit 1
           }
@@ -197,6 +197,8 @@ jobs:
       - name: Notify deployment success
         if: success()
         run: |
-          echo "🎉 Deployment completed successfully!"
-          echo "🌐 Application is available at: http://${{ secrets.EC2_HOST }}:8080"
-          echo "📚 API Documentation: http://${{ secrets.EC2_HOST }}:8080/swagger-ui/index.html"
+          echo "🎉 Development deployment completed successfully!"
+          echo "🌐 Development server is available at: http://${{ secrets.EC2_DEV_HOST }}:8080"
+          echo "📚 API Documentation: http://${{ secrets.EC2_DEV_HOST }}:8080/swagger-ui/index.html"
+          echo "🔧 Environment: Development"
+          echo "📍 IP Address: ${{ secrets.EC2_DEV_HOST }}"

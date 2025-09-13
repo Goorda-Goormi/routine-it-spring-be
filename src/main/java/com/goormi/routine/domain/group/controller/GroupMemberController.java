@@ -63,6 +63,22 @@ public class GroupMemberController {
     }
 
     /**
+     *  내 그룹 멤버 정보 조회
+     */
+    @Operation(summary = "내 그룹 멤버 정보 조회")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "내 그룹 멤버 정보 조회 성공"),
+            @ApiResponse(responseCode = "401", description = "인증되지 않은 사용자")
+    })
+    @GetMapping("/members/me")
+    public ResponseEntity<GroupMemberResponse> getGroupMemberMyInfo(@AuthenticationPrincipal Long userId,
+                                                                    @PathVariable Long groupId) {
+        GroupMemberResponse groupMemberInfo = groupMemberService.getGroupMemberInfo(groupId, userId);
+        return ResponseEntity.ok(groupMemberInfo);
+    }
+
+
+    /**
      * 그룹의 멤버 목록 조회 (필터링 가능)
      */
     @Operation(summary = "그룹 멤버 조회")
@@ -122,6 +138,23 @@ public class GroupMemberController {
                                                                              @Valid @RequestBody LeaderAnswerRequest request) {
         GroupMemberResponse response = groupMemberService.updateMemberRole(userId, request);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 알림 변경
+     */
+    @PutMapping("/members/me")
+    @Operation(summary = "그룹멤버의 알림 변경 (인증 필요)")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "그룹 멤버 알림 변경 성공"),
+            @ApiResponse(responseCode = "401", description = "인증되지 않은 사용자"),
+    })
+    public ResponseEntity<Void> updateIsAlarm(@AuthenticationPrincipal Long userId,
+                                              @PathVariable Long groupId,
+                                              @RequestParam(required = true) boolean isAlarm) {
+
+        groupMemberService.updateIsAlarm(groupId, userId, isAlarm);
+        return ResponseEntity.ok().build();
     }
 
     /**

@@ -62,12 +62,14 @@ public class Group {
     @Column(nullable = false)
     private boolean isActive;
 
+    private boolean isAlarm;
+
 
     // 생성자
     @Builder
     private Group(User leader, String groupName, String description,
                   GroupType groupType, LocalTime alarmTime, String authDays,
-                  String category, String groupImageUrl, Integer maxMembers ) {
+                  String category, String groupImageUrl, Integer maxMembers, boolean isAlarm ) {
         //basicInfo
         this.leader = leader;
         this.groupName = groupName;
@@ -80,6 +82,7 @@ public class Group {
         this.category = category;
         this.groupImageUrl = groupImageUrl;
         this.maxMembers = maxMembers;
+        this.isAlarm = isAlarm;
     }
 
     // 생성 초기값은 여기서 세팅

@@ -142,6 +142,24 @@ public class GroupMemberServiceImpl implements GroupMemberService {
                 .map(GroupMemberResponse::from)
                 .toList();
     }
+    @Override
+    @Transactional(readOnly = true)
+    public GroupMemberResponse getGroupMemberInfo(Long groupId, Long userId) {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(()->new IllegalArgumentException("Group not found"));
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(()->new IllegalArgumentException("User not found"));
+
+        GroupMember groupMember = groupMemberRepository.findByGroupAndUser(group, user)
+                .orElseThrow(()->new IllegalArgumentException("GroupMember not found"));
+
+        List<UserActivity> completedActivities = userActivityRepository
+                .findByGroupMemberAndActivityTypeAndActivityDate(groupMember, ActivityType.GROUP_AUTH_COMPLETE, LocalDate.now());
+
+        boolean isAuthToday = !completedActivities.isEmpty();
+        return GroupMemberResponse.from(groupMember, isAuthToday);
+    }
 
     // 그룹 멤버들의 인증 미인증 구분을 위함.
     @Override
@@ -319,6 +337,18 @@ public class GroupMemberServiceImpl implements GroupMemberService {
             throw new IllegalArgumentException("해당 그룹의 멤버가 아님");
         }
         return groupMember;
+    }
+
+    @Override
+    public void updateIsAlarm(Long groupId, Long userId, boolean isAlarm) {
+        Group group = groupRepository.findById(groupId).orElseThrow(()->new IllegalArgumentException("Group not found"));
+        User user = userRepository.findById(userId).orElseThrow(()->new IllegalArgumentException("User not found"));
+        GroupMember groupMember = groupMemberRepository.findByGroupAndUser(group, user).orElseThrow(()->new IllegalArgumentException("Member not found"));
+
+        if (isAlarm == groupMember.isAlarm()) {
+            return;
+        }
+        groupMember.changeIsAlarm(isAlarm);
     }
 
     // -- Delete

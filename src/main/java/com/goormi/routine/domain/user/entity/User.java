@@ -76,6 +76,9 @@ public class User {
         if (profileImageUrl != null) {
             this.profileImageUrl = profileImageUrl;
         }
+        if (profileMessage != null) {
+            this.profileMessage = profileMessage;
+        }
     }
     
     public void updateRefreshToken(String refreshToken) {
