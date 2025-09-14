@@ -83,12 +83,6 @@ public class BulkDataServiceImpl implements BulkDataService {
 	}
 
 	@Override
-	public BulkDataResponse generatePersonalRoutines(int count) {
-		// TODO
-		return BulkDataResponse.error("personal_routines", "아직 구현되지 않음 - 팀원 2가 구현 예정");
-	}
-
-	@Override
 	public BulkDataResponse generateGroups(int count) {
         User user = User.builder()
                 .kakaoId("maybeLeader")
@@ -139,12 +133,6 @@ public class BulkDataServiceImpl implements BulkDataService {
         }
 
 		return BulkDataResponse.error("groups", "아직 구현되지 않음 - 팀원 2가 구현 예정");
-	}
-
-	@Override
-	public BulkDataResponse generateChatMessages(int count) {
-		// TODO
-		return BulkDataResponse.error("chat_messages", "아직 구현되지 않음 - 팀원 1이 구현 예정");
 	}
 
 	@Override
@@ -206,10 +194,81 @@ public class BulkDataServiceImpl implements BulkDataService {
 		return BulkDataResponse.error("chat_rooms", "아직 구현되지 않음 - 팀원 1이 구현 예정");
 	}
 
+
 	@Override
-	public BulkDataResponse generateNotifications(int count) {
-		// TODO
-		return BulkDataResponse.error("notifications", "아직 구현되지 않음 - 팀원 3이 구현 예정");
+	public BulkDataResponse generateChatMessages(int count) {
+		long startTime = System.currentTimeMillis();
+
+		try {
+			// 기존 채팅방들 조회
+			List<ChatRoom> chatRooms = chatRoomRepository.findAll();
+			if (chatRooms.isEmpty()) {
+				throw new RuntimeException("채팅방이 없습니다. 먼저 채팅방을 생성하세요.");
+			}
+
+			// 기존 사용자들 조회
+			List<User> users = userRepository.findAll();
+			if (users.isEmpty()) {
+				throw new RuntimeException("사용자가 없습니다. 먼저 사용자를 생성하세요.");
+			}
+
+			List<ChatMessage> messages = new ArrayList<>();
+			String[] sampleMessages = {
+				"안녕하세요!",
+				"오늘 루틴 완료했습니다!",
+				"화이팅!",
+				"좋은 하루 되세요",
+				"목표 달성했어요",
+				"함께 해서 좋네요",
+				"열심히 하고 있습니다",
+				"응원해주세요",
+				"감사합니다",
+				"내일도 화이팅!",
+				"성공적인 하루였어요",
+				"잘 부탁드립니다",
+				"오늘도 수고하셨어요",
+				"좋은 결과 있기를 바라요",
+				"모두 함께 파이팅!"
+			};
+
+			for (int i = 1; i <= count; i++) {
+				// 랜덤하게 채팅방과 사용자 선택
+				ChatRoom randomRoom = chatRooms.get(ThreadLocalRandom.current().nextInt(chatRooms.size()));
+				User randomUser = users.get(ThreadLocalRandom.current().nextInt(users.size()));
+				String randomMessage = sampleMessages[ThreadLocalRandom.current().nextInt(sampleMessages.length)];
+
+				ChatMessage message = ChatMessage.builder()
+					.roomId(randomRoom.getId())
+					.userId(randomUser.getId())
+					.senderNickname(randomUser.getNickname())
+					.message(randomMessage + "_" + i)
+					.messageType(ChatMessage.MessageType.TALK)
+					.build();
+
+				messages.add(message);
+
+				// 배치 저장
+				if (i % 100 == 0) {
+					chatMessageRepository.saveAll(messages);
+					messages.clear();
+					log.info("Messages batch saved: {}/{}", i, count);
+				}
+			}
+
+			// 남은 메시지들 저장
+			if (!messages.isEmpty()) {
+				chatMessageRepository.saveAll(messages);
+			}
+
+			long executionTime = System.currentTimeMillis() - startTime;
+			log.info("Bulk chat messages generation completed: {} messages in {}ms", count, executionTime);
+
+			return BulkDataResponse.success("chat_messages", count, executionTime);
+
+		} catch (Exception e) {
+			log.error("Bulk chat messages generation failed", e);
+			return BulkDataResponse.error("chat_messages", e.getMessage());
+		}
 	}
 
 	@Override
@@ -221,38 +280,21 @@ public class BulkDataServiceImpl implements BulkDataService {
 		Map<String, Object> details = new HashMap<>();
 
 		try {
-			// 1. 사용자 생성
-			log.info("Step 1: Generating {} users", userCount);
 			BulkDataResponse userResult = generateUsers(userCount);
-			details.put("users", userResult);
-
-			// 2. 루틴 생성
-			// log.info("Step 2: Generating {} routines", routineCount);
-			// BulkDataResponse routineResult = generatePersonalRoutines(routineCount);
-			// details.put("routines", routineResult);
-
-			// 3. 그룹 생성
-			// log.info("Step 3: Generating {} groups", groupCount);
-			 BulkDataResponse groupResult = generateGroups(groupCount);
-			// details.put("groups", groupResult);
-
-			// 4. 채팅 메시지 생성
-			// log.info("Step 4: Generating {} chat messages", messageCount);
-			// BulkDataResponse messageResult = generateChatMessages(messageCount);
-			// details.put("messages", messageResult);
-
-			// 5. 알림 생성
-			// log.info("Step 5: Generating {} notifications", notificationCount);
-			// BulkDataResponse notificationResult = generateNotifications(notificationCount);
-			// details.put("notifications", notificationResult);
+			BulkDataResponse groupResult = generateGroups(groupCount);
+			BulkDataResponse chatRoomResult = generateChatRooms(groupCount);
+			BulkDataResponse messageResult = generateChatMessages(messageCount);
 
 			long executionTime = System.currentTimeMillis() - startTime;
+			int totalGenerated = userCount + groupCount * 2 +
+				(messageCount > 0 ? messageCount : 0);
+
 
 			return BulkDataResponse.builder()
 				.success(true)
-				.message("전체 벌크 데이터 생성 완료 (현재는 사용자만)")
+				.message("전체 벌크 데이터 생성 완료")
 				.dataType("all")
-				.generatedCount(userCount) // 현재는 사용자만
+				.generatedCount(totalGenerated)
 				.executionTimeMs(executionTime)
 				.details(details)
 				.build();
@@ -270,7 +312,52 @@ public class BulkDataServiceImpl implements BulkDataService {
 		int totalDeleted = 0;
 
 		try {
-			// 테스트 사용자들 삭제 (kakaoId가 'test_kakao_'로 시작하는 것들)
+			// 1. 테스트 채팅 메시지 삭제
+			List<ChatMessage> testMessages = chatMessageRepository.findAll()
+				.stream()
+				.filter(msg -> msg.getMessage().contains("_") &&
+					(msg.getMessage().contains("안녕하세요") ||
+						msg.getMessage().contains("루틴 완료") ||
+						msg.getMessage().contains("화이팅")))
+				.toList();
+
+			totalDeleted += testMessages.size();
+			chatMessageRepository.deleteAll(testMessages);
+			log.info("테스트 채팅 메시지 {} 개 삭제", testMessages.size());
+
+			// 2. 테스트 채팅방 멤버 삭제
+			List<ChatRoom> testChatRooms = chatRoomRepository.findAll()
+				.stream()
+				.filter(room -> room.getRoomName().startsWith("테스트채팅방_"))
+				.toList();
+
+			for (ChatRoom room : testChatRooms) {
+				List<ChatMember> members = chatMemberRepository.findAll()
+					.stream()
+					.filter(member -> member.getRoomId().equals(room.getId()))
+					.toList();
+				chatMemberRepository.deleteAll(members);
+				totalDeleted += members.size();
+			}
+
+			// 3. 테스트 채팅방 삭제
+			totalDeleted += testChatRooms.size();
+			chatRoomRepository.deleteAll(testChatRooms);
+			log.info("테스트 채팅방 {} 개 삭제", testChatRooms.size());
+
+			// 4. 테스트 그룹 삭제
+			List<Group> testGroups = groupRepository.findAll()
+				.stream()
+				.filter(group -> group.getGroupName().startsWith("테스트스터디그룹_") ||
+					group.getGroupName().startsWith("테스트생활그룹_"))
+				.toList();
+
+			totalDeleted += testGroups.size();
+			groupRepository.deleteAll(testGroups);
+			log.info("테스트 그룹 {} 개 삭제", testGroups.size());
+
+
+			// 5. 테스트 사용자들 삭제 (kakaoId가 'test_kakao_'로 시작하는 것들)
 			List<User> testUsers = userRepository.findAll()
 				.stream()
 				.filter(user -> user.getKakaoId().startsWith("test_kakao_"))
@@ -279,10 +366,10 @@ public class BulkDataServiceImpl implements BulkDataService {
 			totalDeleted += testUsers.size();
 			userRepository.deleteAll(testUsers);
 
-			// TODO: 각자 자신의 테스트 데이터 정리 로직 추가
-
+			totalDeleted += testUsers.size();
+			userRepository.deleteAll(testUsers);
 			long executionTime = System.currentTimeMillis() - startTime;
-			log.info("Bulk data cleanup completed: {} items deleted in {}ms", totalDeleted, executionTime);
+			log.info("=== 벌크 데이터 정리 완료 ===");
 
 			return BulkDataResponse.cleanup(totalDeleted, executionTime);
 

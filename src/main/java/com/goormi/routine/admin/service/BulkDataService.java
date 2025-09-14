@@ -8,11 +8,6 @@ public interface BulkDataService {
 	BulkDataResponse generateUsers(int count);
 
 	/**
-	 * 벌크 개인 루틴 생성
-	 */
-	BulkDataResponse generatePersonalRoutines(int count);
-
-	/**
 	 * 벌크 그룹 생성
 	 */
 	BulkDataResponse generateGroups(int count);
@@ -27,10 +22,6 @@ public interface BulkDataService {
 	 */
 	BulkDataResponse generateChatRooms(int count);
 
-	/**
-	 * 벌크 알림 생성
-	 */
-	BulkDataResponse generateNotifications(int count);
 
 	/**
 	 * 전체 벌크 데이터 생성

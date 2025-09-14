@@ -37,23 +37,6 @@ public class BulkDataController {
 	}
 
 	@Operation(
-		summary = "벌크 개인 루틴 생성",
-		description = "성능 테스트를 위해 지정된 수만큼 개인 루틴을 생성합니다. " +
-			"기존 사용자들에게 랜덤하게 루틴이 할당됩니다."
-	)
-	@PostMapping("/routines/{count}")
-	public ApiResponse<BulkDataResponse> generateRoutines(
-		@Parameter(description = "생성할 루틴 수", required = true)
-		@PathVariable int count) {
-
-		log.info("Bulk routines generation started - count: {}", count);
-
-		BulkDataResponse response = bulkDataService.generatePersonalRoutines(count);
-
-		return ApiResponse.success("루틴 벌크 생성이 완료되었습니다.", response);
-	}
-
-	@Operation(
 		summary = "벌크 그룹 생성",
 		description = "성능 테스트를 위해 지정된 수만큼 그룹을 생성합니다. " +
 			"각 그룹에는 랜덤한 멤버들이 할당됩니다."
@@ -101,23 +84,6 @@ public class BulkDataController {
 		BulkDataResponse response = bulkDataService.generateChatMessages(count);
 
 		return ApiResponse.success("채팅 메시지 벌크 생성이 완료되었습니다.", response);
-	}
-
-	@Operation(
-		summary = "벌크 알림 생성",
-		description = "성능 테스트를 위해 지정된 수만큼 알림을 생성합니다. " +
-			"기존 사용자들에게 랜덤한 알림이 전송됩니다."
-	)
-	@PostMapping("/notifications/{count}")
-	public ApiResponse<BulkDataResponse> generateNotifications(
-		@Parameter(description = "생성할 알림 수", required = true)
-		@PathVariable int count) {
-
-		log.info("Bulk notifications generation started - count: {}", count);
-
-		BulkDataResponse response = bulkDataService.generateNotifications(count);
-
-		return ApiResponse.success("알림 벌크 생성이 완료되었습니다.", response);
 	}
 
 	@Operation(
