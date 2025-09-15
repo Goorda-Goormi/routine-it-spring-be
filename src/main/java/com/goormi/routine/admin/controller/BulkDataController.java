@@ -95,19 +95,15 @@ public class BulkDataController {
 	public ApiResponse<BulkDataResponse> generateAllBulkData(
 		@Parameter(description = "생성할 사용자 수")
 		@RequestParam(defaultValue = "1000") int userCount,
-		@Parameter(description = "생성할 루틴 수")
-		@RequestParam(defaultValue = "5000") int routineCount,
 		@Parameter(description = "생성할 그룹 수")
 		@RequestParam(defaultValue = "100") int groupCount,
 		@Parameter(description = "생성할 채팅 메시지 수")
-		@RequestParam(defaultValue = "10000") int messageCount,
-		@Parameter(description = "생성할 알림 수")
-		@RequestParam(defaultValue = "5000") int notificationCount) {
+		@RequestParam(defaultValue = "10000") int messageCount) {
 
 		log.info("Complete bulk data generation started");
 
 		BulkDataResponse response = bulkDataService.generateAllBulkData(
-			userCount, routineCount, groupCount, messageCount, notificationCount);
+			userCount, groupCount, messageCount);
 
 		return ApiResponse.success("전체 벌크 데이터 생성이 완료되었습니다.", response);
 	}

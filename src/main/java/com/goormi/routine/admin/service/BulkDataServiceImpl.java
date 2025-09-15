@@ -1,7 +1,6 @@
 package com.goormi.routine.admin.service;
 
 import com.goormi.routine.admin.dto.BulkDataResponse;
-import com.goormi.routine.domain.chat.dto.ChatMessageDto;
 import com.goormi.routine.domain.chat.entity.ChatMember;
 import com.goormi.routine.domain.chat.entity.ChatMessage;
 import com.goormi.routine.domain.chat.entity.ChatRoom;
@@ -18,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -83,115 +81,174 @@ public class BulkDataServiceImpl implements BulkDataService {
 	}
 
 	@Override
+	@Transactional
 	public BulkDataResponse generateGroups(int count) {
-        User user = User.builder()
-                .kakaoId("maybeLeader")
-                .email("maybeLeader@111.com")
-                .nickname("maybeLeader")
-                .role(User.UserRole.USER)
-                .active(true)
-                .build();
+		long startTime = System.currentTimeMillis();
 
-        List<Group> groups = new ArrayList<>();
-        for (long  i = 1L; i <= count; i++) {
-            User leader = userRepository.findById(i).orElse(user);
+		try {
+			// 기존 사용자들 조회 (리더로 사용)
+			List<User> users = userRepository.findAll();
+			if (users.isEmpty()) {
+				// 기본 사용자가 없으면 하나 생성
+				User defaultUser = User.builder()
+					.kakaoId("default_leader_" + System.currentTimeMillis())
+					.email("default@leader.com")
+					.nickname("기본리더")
+					.role(User.UserRole.USER)
+					.active(true)
+					.build();
+				users.add(userRepository.save(defaultUser));
+			}
 
-            if (i > count / 2) {
-                Group study = Group.builder()
-                        .groupName("group_" + i)
-                        .groupType(GroupType.FREE)
-                        .description("testgroup_" + i)
-                        .leader(leader)
-                        .authDays("0101010")
-                        .alarmTime(LocalTime.now().plusHours(1))
-                        .groupImageUrl("https://example.com/group" + i + ".jpg")
-                        .category("study")
-                        .maxMembers(20)
-                        .build();
-                groups.add(study);
-            } else {
-                Group living = Group.builder()
-                        .groupName("group_" + i)
-                        .groupType(GroupType.REQUIRED)
-                        .description("testgroup_" + i)
-                        .leader(leader)
-                        .authDays("0000010")
-                        .alarmTime(LocalTime.now().plusHours(1))
-                        .groupImageUrl("https://example.com/group" + i + ".jpg")
-                        .category("living")
-                        .maxMembers(20)
-                        .build();
-                groups.add(living);
-            }
-            // 배치 사이즈마다 저장 (메모리 효율성)
-            if (i % 100 == 0) {
-                groupRepository.saveAll(groups);
-                groups.clear();
-                log.info("Users batch saved: {}/{}", i, count);
-            }
+			List<Group> groups = new ArrayList<>();
 
-        }
+			for (int i = 1; i <= count; i++) {
+				// 리더를 순환적으로 할당
+				User leader = users.get((i - 1) % users.size());
 
-		return BulkDataResponse.error("groups", "아직 구현되지 않음 - 팀원 2가 구현 예정");
+				Group group;
+				if (i > count / 2) {
+					group = Group.builder()
+						.groupName("테스트스터디그룹_" + i)
+						.groupType(GroupType.FREE)
+						.description("테스트용 스터디 그룹_" + i)
+						.leader(leader)
+						.authDays("0101010")
+						.alarmTime(LocalTime.of(9, 0))
+						.groupImageUrl("https://example.com/group" + i + ".jpg")
+						.category("study")
+						.maxMembers(20)
+						.build();
+				} else {
+					group = Group.builder()
+						.groupName("테스트생활그룹_" + i)
+						.groupType(GroupType.REQUIRED)
+						.description("테스트용 생활 그룹_" + i)
+						.leader(leader)
+						.authDays("0000010")
+						.alarmTime(LocalTime.of(21, 0))
+						.groupImageUrl("https://example.com/group" + i + ".jpg")
+						.category("living")
+						.maxMembers(20)
+						.build();
+				}
+
+				// setInitialValues 호출 (group이 null이 아님을 보장)
+				group.setInitialValues(group);
+				groups.add(group);
+
+				// 배치 사이즈마다 저장 (메모리 효율성)
+				if (i % 100 == 0) {
+					groupRepository.saveAll(groups);
+					groups.clear();
+					log.info("Groups batch saved: {}/{}", i, count);
+				}
+			}
+
+			// 남은 그룹들 저장
+			if (!groups.isEmpty()) {
+				groupRepository.saveAll(groups);
+			}
+
+			long executionTime = System.currentTimeMillis() - startTime;
+			log.info("Bulk groups generation completed: {} groups in {}ms", count, executionTime);
+
+			return BulkDataResponse.success("groups", count, executionTime);
+
+		} catch (Exception e) {
+			log.error("Bulk groups generation failed", e);
+			return BulkDataResponse.error("groups", e.getMessage());
+		}
 	}
 
 	@Override
+	@Transactional
 	public BulkDataResponse generateChatRooms(int count) {
-        User me =  userRepository.findById(1L).orElseThrow(()->new RuntimeException("user not found"));
-        userRepository.save(me);
-        Group saved = Group.builder()
-                .groupName("group_forChat")
-                .groupType(GroupType.FREE)
-                .description("testgroup_forChat")
-                .leader(me)
-                .authDays("0101010")
-                .alarmTime(LocalTime.now().plusHours(1))
-                .groupImageUrl("https://example.com/groupChat.jpg")
-                .category("study")
-                .maxMembers(20)
-                .build();
-        groupRepository.save(saved);
+		long startTime = System.currentTimeMillis();
 
-        ChatRoom chatRoom = ChatRoom.builder()
-                .groupId(saved.getGroupId())
-                .roomName(saved.getGroupName())
-                .description(saved.getGroupName())
-                .maxParticipants(saved.getMaxMembers())
-                .isActive(true)
-                .createdBy(me.getId())
-                .build();
+		try {
+			// 기존 그룹들 조회
+			List<Group> groups = groupRepository.findAll();
+			if (groups.isEmpty()) {
+				throw new RuntimeException("그룹이 없습니다. 먼저 그룹을 생성하세요.");
+			}
 
-        ChatRoom savedChatRoom = chatRoomRepository.save(chatRoom);
+			List<ChatRoom> chatRooms = new ArrayList<>();
 
-        // 그룹 리더를 채팅방 관리자로 자동 추가
-        ChatMember chatMember = ChatMember.builder()
-                .roomId(savedChatRoom.getId())
-                .userId(me.getId())
-                .role(ChatMember.MemberRole.ADMIN)
-                .isActive(true)
-                .build();
-        chatMemberRepository.save(chatMember);
+			for (int i = 1; i <= count; i++) {
+				// 그룹을 순환적으로 할당
+				Group group = groups.get((i - 1) % groups.size());
 
-        List<ChatMessage> messageList = new ArrayList<>();
-        for (int i = 1; i <= count; i++) {
-            ChatMessage message = ChatMessage.builder()
-                    .roomId(savedChatRoom.getId())
-                    .userId(me.getId())
-                    .senderNickname(me.getNickname())
-                    .message("chattingMESSAGE_"+i)
-                    .messageType(ChatMessage.MessageType.TALK)
-                    .build();
+				ChatRoom chatRoom = ChatRoom.builder()
+					.groupId(group.getGroupId())
+					.roomName("테스트채팅방_" + i)
+					.description("테스트용 채팅방_" + i)
+					.maxParticipants(group.getMaxMembers())
+					.isActive(true)
+					.createdBy(group.getLeader().getId())
+					.build();
 
-            messageList.add(message);
+				chatRooms.add(chatRoom);
 
-            // 배치 사이즈마다 저장 (메모리 효율성)
-            if (i % 100 == 0) {
-                chatMessageRepository.saveAll(messageList);
-                messageList.clear();
-                log.info("Users batch saved: {}/{}", i, count);
-            }
-        }
-		return BulkDataResponse.error("chat_rooms", "아직 구현되지 않음 - 팀원 1이 구현 예정");
+				// 배치 사이즈마다 저장 (메모리 효율성)
+				if (i % 100 == 0) {
+					List<ChatRoom> savedRooms = chatRoomRepository.saveAll(chatRooms);
+
+					// 각 채팅방에 리더를 관리자로 추가
+					List<ChatMember> chatMembers = new ArrayList<>();
+					for (ChatRoom savedRoom : savedRooms) {
+						Group roomGroup = groups.stream()
+							.filter(g -> g.getGroupId().equals(savedRoom.getGroupId()))
+							.findFirst()
+							.orElse(group);
+
+						ChatMember chatMember = ChatMember.builder()
+							.roomId(savedRoom.getId())
+							.userId(roomGroup.getLeader().getId())
+							.role(ChatMember.MemberRole.ADMIN)
+							.isActive(true)
+							.build();
+						chatMembers.add(chatMember);
+					}
+					chatMemberRepository.saveAll(chatMembers);
+
+					chatRooms.clear();
+					log.info("ChatRooms batch saved: {}/{}", i, count);
+				}
+			}
+
+			// 남은 채팅방들 저장
+			if (!chatRooms.isEmpty()) {
+				List<ChatRoom> savedRooms = chatRoomRepository.saveAll(chatRooms);
+
+				// 각 채팅방에 리더를 관리자로 추가
+				List<ChatMember> chatMembers = new ArrayList<>();
+				for (ChatRoom savedRoom : savedRooms) {
+					Group roomGroup = groups.stream()
+						.filter(g -> g.getGroupId().equals(savedRoom.getGroupId()))
+						.findFirst()
+						.orElse(groups.get(0));
+
+					ChatMember chatMember = ChatMember.builder()
+						.roomId(savedRoom.getId())
+						.userId(roomGroup.getLeader().getId())
+						.role(ChatMember.MemberRole.ADMIN)
+						.isActive(true)
+						.build();
+					chatMembers.add(chatMember);
+				}
+				chatMemberRepository.saveAll(chatMembers);
+			}
+
+			long executionTime = System.currentTimeMillis() - startTime;
+			log.info("Bulk chat rooms generation completed: {} rooms in {}ms", count, executionTime);
+
+			return BulkDataResponse.success("chat_rooms", count, executionTime);
+
+		} catch (Exception e) {
+			log.error("Bulk chat rooms generation failed", e);
+			return BulkDataResponse.error("chat_rooms", e.getMessage());
+		}
 	}
 
 
@@ -273,9 +330,8 @@ public class BulkDataServiceImpl implements BulkDataService {
 
 	@Override
 	@Transactional
-	public BulkDataResponse generateAllBulkData(int userCount, int routineCount,
-		int groupCount, int messageCount,
-		int notificationCount) {
+	public BulkDataResponse generateAllBulkData(int userCount,
+		int groupCount, int messageCount) {
 		long startTime = System.currentTimeMillis();
 		Map<String, Object> details = new HashMap<>();
 

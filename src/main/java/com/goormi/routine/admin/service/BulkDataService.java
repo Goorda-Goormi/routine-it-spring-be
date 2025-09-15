@@ -26,9 +26,8 @@ public interface BulkDataService {
 	/**
 	 * 전체 벌크 데이터 생성
 	 */
-	BulkDataResponse generateAllBulkData(int userCount, int routineCount,
-		int groupCount, int messageCount,
-		int notificationCount);
+	BulkDataResponse generateAllBulkData(int userCount,
+		int groupCount, int messageCount);
 
 	/**
 	 * 벌크 데이터 정리
