@@ -29,6 +29,9 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     
     @Value("${app.oauth2.redirect-uri:http://localhost:3000}")
     private String redirectUri;
+
+    @Value("${is.https.enabled}")
+    private boolean isHttpsEnabled;
     
     @Override
     @Transactional
@@ -67,7 +70,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         // Refresh Token을 HttpOnly 쿠키에 저장
         Cookie refreshTokenCookie = new Cookie("refreshToken", refreshToken);
         refreshTokenCookie.setHttpOnly(true);
-        refreshTokenCookie.setSecure(false); // HTTPS 환경에서는 true로 설정
+        refreshTokenCookie.setSecure(isHttpsEnabled); // HTTPS 환경에서는 true로 설정
         refreshTokenCookie.setPath("/");
         refreshTokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7일
 

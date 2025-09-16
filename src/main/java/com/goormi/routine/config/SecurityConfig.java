@@ -38,6 +38,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
+                    "/api/admin/**",
                     "/api/health/**",
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
@@ -47,8 +48,7 @@ public class SecurityConfig {
                     "/oauth2/**",
                     "/api/auth/check-nickname",
                     "/api/auth/refresh",
-                    "/ws/**",
-                    "/api/admin/**"
+                    "/ws/**"
                 ).permitAll()
                 .anyRequest().authenticated()
             )
