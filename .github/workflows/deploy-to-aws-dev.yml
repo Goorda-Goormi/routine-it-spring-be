@@ -29,7 +29,7 @@ jobs:
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             TAG="${{ github.event.inputs.deploy_tag }}"
           else
-            TAG="develop"
+            TAG="latest"
           fi
           echo "deploy_tag=$TAG" >> $GITHUB_OUTPUT
           echo "🏷️ Deploying tag: $TAG to development server"
