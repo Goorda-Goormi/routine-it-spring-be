@@ -41,6 +41,7 @@ public class UserActivity {
     @JoinColumn(name = "member_id")
     private GroupMember groupMember;
 
+    @Column(length = 1000)
     private String imageUrl;
     private Boolean isPublic;
 
