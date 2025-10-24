@@ -17,10 +17,8 @@ import com.goormi.routine.domain.ranking.entity.Ranking;
 @Repository
 public interface RankingRepository extends JpaRepository<Ranking, Long> {
 
-	Optional<Ranking> findByUserIdAndGroupId(Long userId, Long groupId);
-
-	@Query("SELECT r FROM Ranking r WHERE r.groupId = :groupId AND r.userId IS NOT NULL ORDER BY r.score DESC LIMIT 3")
-	List<Ranking> findTop3UsersByGroupId(@Param("groupId") Long groupId);
+	@Query("SELECT r FROM Ranking r WHERE r.groupId = :groupId AND r.userId IS NOT NULL AND r.monthYear = :monthYear ORDER BY r.score DESC")
+	List<Ranking> findTop3UsersByGroupId(@Param("groupId") Long groupId, @Param("monthYear") String monthYear, Pageable pageable);
 
 	@Query("SELECT r FROM Ranking r WHERE r.groupId = :groupId AND r.userId IS NOT NULL ORDER BY r.score DESC")
 	List<Ranking> findAllUsersByGroupIdOrderByScore(@Param("groupId") Long groupId);
@@ -36,27 +34,24 @@ public interface RankingRepository extends JpaRepository<Ranking, Long> {
 		nativeQuery = true)
 	Page<Object[]> findPersonalRankingsByMonth(@Param("monthYear") String monthYear, Pageable pageable);
 
-	@Query("SELECT r.groupId, g.groupName, g.category, g.groupType, SUM(r.score) as totalScore " +
-		"FROM Ranking r JOIN r.group g " +
-		"WHERE r.monthYear = :monthYear " +
-		"AND r.groupId IS NOT NULL " +
-		"AND g.isActive = true " +
-		"AND (:category IS NULL OR g.category = :category) " +
-		"AND (:groupType IS NULL OR g.groupType = :groupType) " +
-		"GROUP BY r.groupId, g.groupName, g.category, g.groupType " +
-		"ORDER BY totalScore DESC")
-	Page<Object[]> findGroupRankingsByMonthAndFilters(@Param("monthYear") String monthYear,
-		@Param("category") String category,
-		@Param("groupType") String groupType,
-		Pageable pageable);
+	// @Query("SELECT r.groupId, g.groupName, g.category, g.groupType, COALESCE(SUM(r.score), 0) as totalScore " +
+	// 	"FROM Ranking r JOIN r.group g " +
+	// 	"WHERE r.monthYear = :monthYear " +
+	// 	"AND r.groupId IS NOT NULL " +
+	// 	"AND g.isActive = true " +
+	// 	"AND (:category IS NULL OR g.category = :category) " +
+	// 	"AND (:groupType IS NULL OR g.groupType = :groupType) " +
+	// 	"GROUP BY r.groupId, g.groupName, g.category, g.groupType " +
+	// 	"ORDER BY totalScore DESC")
+	// Page<Object[]> findGroupRankingsByMonthAndFilters(
+	// 	@Param("monthYear") String monthYear,
+	// 	@Param("category") String category,
+	// 	@Param("groupType") String groupType,
+	// 	Pageable pageable
+	// );
 
-	@Query("SELECT r FROM Ranking r WHERE r.groupId = :groupId AND r.monthYear = :monthYear ORDER BY r.score DESC")
+	@Query("SELECT r FROM Ranking r WHERE r.groupId = :groupId AND r.userId IS NOT NULL AND r.monthYear LIKE CONCAT(:monthYear, '%') ORDER BY r.score DESC")
 	List<Ranking> findAllUsersByGroupIdAndMonthOrderByScore(@Param("groupId") Long groupId, @Param("monthYear") String monthYear);
 
-	@Modifying
-	@Transactional
-	@Query("UPDATE Ranking r " +
-		"SET r.monthYear = :currentMonth, r.score = 0, r.updatedAt = CURRENT_TIMESTAMP " +
-		"WHERE r.monthYear <> :currentMonth")
-	int resetMonthlyRankings(@Param("currentMonth") String currentMonth);
+	Optional<Ranking> findByUserIdAndGroupIdAndMonthYear(Long userId, Long groupId, String monthYear);
 }

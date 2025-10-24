@@ -57,6 +57,8 @@ public class UserActivityServiceImpl implements UserActivityService{
 
             userActivity = UserActivity.createActivity(user, groupMember, request.getImageUrl(), request.getIsPublic());
 
+            int monthlyAuthCount = calculateMonthlyAuthCount(userId);
+            rankingService.updateRankingScore(userId, request.getGroupId(), monthlyAuthCount);
         }
         else if (request.getActivityType() == ActivityType.PERSONAL_ROUTINE_COMPLETE) {
             if (request.getPersonalRoutineId() == null) throw new IllegalArgumentException("PersonalRoutine Id is null");
@@ -78,9 +80,6 @@ public class UserActivityServiceImpl implements UserActivityService{
         }
 
         UserActivity saved = userActivityRepository.save(userActivity);
-
-        int monthlyAuthCount = calculateMonthlyAuthCount(userId);
-        rankingService.updateRankingScore(userId, request.getGroupId(), monthlyAuthCount);
 
         return convertToResponse(saved);
     }
