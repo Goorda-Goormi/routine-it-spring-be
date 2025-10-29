@@ -41,6 +41,7 @@ public class ReviewServiceImpl implements ReviewService{
 	private final ReviewRedisRepository reviewRedisRepository;
 	private final UserActivityRepository userActivityRepository;
 	private final ObjectMapper objectMapper;
+	private final AiReviewService aiReviewService;
 
 	@Override
 	public void sendMonthlyReviewMessages(String monthYear) {
@@ -81,7 +82,14 @@ public class ReviewServiceImpl implements ReviewService{
 
 		MonthlyReviewResponse currentReview = calculateMonthlyReview(userId, monthYear);
 
-		String messageContent = generateReviewMessage(currentReview);
+		String messageContent;
+		try {
+			//gemini 호출
+			messageContent = aiReviewService.generateAiMessage(currentReview);
+		} catch (Exception e) {
+			messageContent = generateReviewMessage(currentReview);
+		}
+
 		currentReview.setMessageContent(messageContent);
 		currentReview.setMessageSent(true);
 
@@ -349,6 +357,7 @@ public class ReviewServiceImpl implements ReviewService{
 		}
 	}
 
+	//ai 호출 실패 시
 	private String generateReviewMessage(MonthlyReviewResponse review) {
 		StringBuilder message = new StringBuilder();
 
