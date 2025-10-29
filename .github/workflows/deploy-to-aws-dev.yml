@@ -113,7 +113,7 @@ jobs:
 
           #Gemini
           GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-          GEMINI_API_URL=${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_URL=${{ secrets.GEMINI_API_URL }}
           EOF
 
       - name: Copy files to EC2
