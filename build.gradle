@@ -51,6 +51,9 @@ dependencies {
 	
 	// WebClient for 카카오 API 호출
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	// Google GenAI SDK
+	implementation 'com.google.genai:google-genai:1.24.0'
 	
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'

@@ -1,19 +1,19 @@
 package com.goormi.routine.domain.review.service;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.genai.Client;
+import com.google.genai.types.BlockedReason;
+import com.google.genai.types.Content;
+import com.google.genai.types.GenerateContentResponse;
+import com.google.genai.types.GenerateContentResponsePromptFeedback;
+import com.google.genai.types.Part;
 import com.goormi.routine.domain.review.dto.MonthlyReviewResponse;
 
-import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -22,14 +22,16 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class AiReviewServiceImpl implements AiReviewService{
 
-	private final RestTemplate restTemplate;
+	private final Client geminiClient;
 	private final ObjectMapper objectMapper;
 
-	@Value("${gemini.api.key}")
-	private String apiKey;
+	// @Value("${gemini.api.key}")
+	// private String apiKey;
+	//
+	// @Value("${gemini.api.url}")
+	// private String geminiApiUrl;
 
-	@Value("${gemini.api.url}")
-	private String geminiApiUrl;
+	private static final String MODEL_NAME = "gemini-2.5-flash";
 
 	@Override
 	public String generateAiMessage(MonthlyReviewResponse review) throws Exception {
@@ -37,29 +39,17 @@ public class AiReviewServiceImpl implements AiReviewService{
 		String reviewDataJson = objectMapper.writeValueAsString(review);
 		String prompt = createGeminiPrompt(reviewDataJson);
 
-		HttpHeaders headers = new org.springframework.http.HttpHeaders();
-		headers.setContentType(MediaType.APPLICATION_JSON);
-
-		Map<String, Object> content = Map.of(
-			"role", "user",
-			"parts", List.of(Map.of("text", prompt))
-		);
-
-		Map<String, Object> body = Map.of(
-			"contents", List.of(content)
-		);
-
-		HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-
-		String urlWithKey = geminiApiUrl + "?key=" + apiKey;
+		Content userContent = Content.builder()
+			.role("user")
+			.parts(List.of(Part.builder().text(prompt).build()))
+			.build();
 
 		try {
-			Map response = restTemplate.postForObject(
-				urlWithKey,
-				request,
-				Map.class
+			GenerateContentResponse response = geminiClient.models.generateContent(
+				MODEL_NAME,
+				List.of(userContent),
+				null
 			);
-
 			return extractMessageFromGeminiResponse(response);
 		} catch (Exception e) {
 			throw e;
@@ -86,23 +76,34 @@ public class AiReviewServiceImpl implements AiReviewService{
 			"제공된 데이터: " + reviewDataJson;
 	}
 
-	private String extractMessageFromGeminiResponse(Map response) {
-		try {
-			List candidates = (List)response.get("candidates");
-			if (candidates == null || candidates.isEmpty()) {
-				Map promptFeedback = (Map)response.get("promptFeedback");
-				String blockReason = (String)promptFeedback.get("blockReason");
-				throw new IllegalArgumentException("Gemini 응답에 텍스트가 없습니다. 차단 사유: " + blockReason);
+	private String extractMessageFromGeminiResponse(GenerateContentResponse response) {
+			String generatedText = response.text();
+
+			if (generatedText != null && !generatedText.trim().isEmpty()) {
+				return generatedText;
 			}
-			Map candidate = (Map)candidates.get(0);
-			Map content = (Map)candidate.get("content");
-			List parts = (List)content.get("parts");
-			Map part = (Map)parts.get(0);
 
-			return (String)part.get("text");
-		} catch (Exception e) {
-			throw new RuntimeException("AI 응답을 처리할 수 없습니다.", e);
-		}
+			Optional<GenerateContentResponsePromptFeedback> feedbackOptional = response.promptFeedback();
+
+			String blockReason = "알 수 없음 (텍스트 생성 실패)";
+
+			if (feedbackOptional.isPresent()) {
+				GenerateContentResponsePromptFeedback feedback = feedbackOptional.get();
+
+				Optional<BlockedReason> reasonOptional = feedback.blockReason();
+
+				if (reasonOptional.isPresent()) {
+					blockReason = "차단됨: " + reasonOptional.get().toString();
+				} else {
+					int count = feedback.safetyRatings()
+						.map(List::size)
+						.orElse(0);
+
+					blockReason = "안전 필터링 의심 (등급 " + count + "개 확인)";
+				}
+			}
+				log.error("Gemini 텍스트 생성 실패. Fallback으로 전환됩니다. 사유: {}", blockReason);
+
+				throw new IllegalStateException("AI 메시지 생성 실패: " + blockReason);
+			}
 	}
-
-}
