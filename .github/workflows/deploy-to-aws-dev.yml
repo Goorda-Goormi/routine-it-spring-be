@@ -111,6 +111,10 @@ jobs:
           MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_DATABASE=${{ secrets.DB_NAME }}
           EOF
+          
+          #Gemini
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_URL=${{ secrets.GEMINI_API_KEY }}
 
       - name: Copy files to EC2
         env:
