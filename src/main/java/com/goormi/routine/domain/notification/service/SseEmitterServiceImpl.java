@@ -5,6 +5,7 @@ import com.goormi.routine.domain.notification.repository.SseEmitterRepository;
 import com.goormi.routine.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -83,5 +84,21 @@ public class SseEmitterServiceImpl implements SseEmitterService {
         events.entrySet().stream()
                 .filter(entry -> lastEmitterId.compareTo(entry.getKey()) < 0)
                 .forEach(entry -> sendToClient(emitter, entry.getKey(), entry.getValue()));
+    }
+
+    @Scheduled(fixedRate = 30000)
+    public void sendHeartbeat() {
+        final Map<String, SseEmitter> emitters = sseEmitterRepository.findAllEmitters();
+        emitters.forEach((emitterId, emitter) -> {
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("heartbeat")
+                        .data("ping"));
+                log.debug("Heartbeat sent to emitter: {}", emitterId);
+            } catch (IOException e) {
+                sseEmitterRepository.deleteById(emitterId);
+                log.error("Failed to send heartbeat to emitter: {}", emitterId, e);
+            }
+        });
     }
 }
