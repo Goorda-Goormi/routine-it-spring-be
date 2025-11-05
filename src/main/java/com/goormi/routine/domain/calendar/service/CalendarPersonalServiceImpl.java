@@ -64,7 +64,7 @@ public class CalendarPersonalServiceImpl implements CalendarPersonalService {
      */
     @Override
     @Transactional
-    public void updatePersonalSchedule(Long userId, PersonalRoutine personalRoutine, String eventId) {
+    public String updatePersonalSchedule(Long userId, PersonalRoutine personalRoutine, String eventId) {
         log.info("개인 일정 수정 시작: userId={}, eventId={}", userId, eventId);
 
         // 입력 매개변수 유효성 검사
@@ -89,11 +89,13 @@ public class CalendarPersonalServiceImpl implements CalendarPersonalService {
             String actualEventId = eventId;
             String startAt = null;
             if (events != null && events.events() != null){
+//                Arrays.stream(events.events()).forEach(e -> log.info("Event id: {}, title: {}", e.id(), e.title()));
+
                 Optional<EventBrief> matchedEventOpt = Arrays.stream(events.events())
                         .filter(e -> e.id() != null && e.id().startsWith(eventId))
                         .findFirst();
 
-                actualEventId = matchedEventOpt.map(EventBrief::id).orElse(eventId);
+                actualEventId = matchedEventOpt.map(EventBrief::id).orElse(null);
                 startAt = matchedEventOpt.map(e -> e.time().startAt()).orElse(null);
 
             }
@@ -106,9 +108,9 @@ public class CalendarPersonalServiceImpl implements CalendarPersonalService {
                     actualEventId, calendarId, userId);
 
             try {
-                kakaoCalendarClient.updateEvent(accessToken, actualEventId, request);
+                UpdateEventResponse updateEventResponse = kakaoCalendarClient.updateEvent(accessToken, actualEventId, request);
                 log.info("개인 일정 수정 완료: userId={}, eventId={}", actualEventId, eventId);
-
+                return updateEventResponse != null ? updateEventResponse.eventId() : actualEventId;
             } catch (RuntimeException kakaoApiException) {
                 log.error("카카오 API 오류 발생: actualEventId={}, calendarId={}, error={}",
                         actualEventId, calendarId, kakaoApiException.getMessage());
