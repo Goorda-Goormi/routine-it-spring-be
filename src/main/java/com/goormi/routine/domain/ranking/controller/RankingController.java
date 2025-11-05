@@ -7,6 +7,8 @@ import com.goormi.routine.domain.ranking.dto.PersonalRankingResponse;
 import com.goormi.routine.domain.ranking.dto.RankingResetResponse;
 import com.goormi.routine.domain.ranking.service.RankingService;
 import com.goormi.routine.common.response.ApiResponse;
+import com.goormi.routine.domain.user.entity.User;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,19 +40,13 @@ public class RankingController {
 	)
 	@GetMapping("/personal")
 	public ApiResponse<Page<PersonalRankingResponse>> getPersonalRankings(
-		@Parameter(description = "조회할 월 (YYYY-MM 형식), 미입력시 현재 월")
-		@RequestParam(required = false) String monthYear,
 		@Parameter(description = "페이지 번호 (0부터 시작)")
 		@RequestParam(defaultValue = "0") Integer page,
 		@Parameter(description = "페이지 크기")
 		@RequestParam(defaultValue = "10") Integer size,
-		@CurrentUser Long userId) {
-		if (monthYear == null || monthYear.trim().isEmpty()) {
-			monthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
-		}
-
+		@CurrentUser User user) {
 		Pageable pageable = PageRequest.of(page, size);
-		Page<PersonalRankingResponse> rankings = rankingService.getPersonalRankings(monthYear, pageable, userId);
+		Page<PersonalRankingResponse> rankings = rankingService.getPersonalRankings(pageable, user.getId());
 
 		return ApiResponse.success("개인 랭킹 조회가 완료되었습니다.", rankings);
 	}
@@ -60,9 +56,7 @@ public class RankingController {
 		description = "그룹의 점수를 합산하여 전체 그룹 랭킹을 조회합니다. " + "새로운 월이 되면 자동으로 랭킹이 초기화됩니다."
 	)
 	@GetMapping("/groups/global")
-	public ApiResponse<Page<GlobalGroupRankingResponse.GroupRankingItem>> getGlobalGroupRankings(
-		@Parameter(description = "조회할 월 (YYYY-MM 형식), 미입력시 현재 월")
-		@RequestParam(required = false) String monthYear,
+	public ApiResponse<GlobalGroupRankingResponse> getGlobalGroupRankings(
 		@Parameter(description = "그룹 카테고리 필터 (운동, 독서, 취미 등)")
 		@RequestParam(required = false) String category,
 		@Parameter(description = "그룹 타입 필터 (OPTIONAL: 자유참여, MANDATORY: 의무참여)")
@@ -71,15 +65,12 @@ public class RankingController {
 		@RequestParam(defaultValue = "0") Integer page,
 		@Parameter(description = "페이지 크기")
 		@RequestParam(defaultValue = "20") Integer size) {
-		if (monthYear == null || monthYear.trim().isEmpty()) {
-			monthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
-		}
-
 		Pageable pageable = PageRequest.of(page, size);
-		Page<GlobalGroupRankingResponse.GroupRankingItem> rankings =
-			rankingService.getGlobalGroupRankings(monthYear, category, groupType, pageable);
 
-		return ApiResponse.success("그룹 랭킹 조회가 완료되었습니다.", rankings);
+		GlobalGroupRankingResponse response =
+			rankingService.getGlobalGroupRankings(category, groupType, pageable);
+
+		return ApiResponse.success("그룹 랭킹 조회가 완료되었습니다.", response);
 	}
 
 	@Operation(
@@ -89,14 +80,9 @@ public class RankingController {
 	@GetMapping("/groups/{groupId}/top3")
 	public ApiResponse<GroupTop3RankingResponse> getGroupTop3Rankings(
 		@Parameter(description = "그룹 ID", required = true)
-		@PathVariable Long groupId,
-		@Parameter(description = "조회할 월 (YYYY-MM 형식), 미입력시 현재 월")
-		@RequestParam(required = false) String monthYear) {
-		if (monthYear == null || monthYear.trim().isEmpty()) {
-			monthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
-		}
+		@PathVariable Long groupId) {
 
-		GroupTop3RankingResponse response = rankingService.getTop3RankingsByGroup(groupId, monthYear);
+		GroupTop3RankingResponse response = rankingService.getTop3RankingsByGroup(groupId);
 		return ApiResponse.success("그룹 Top3 랭킹 조회가 완료되었습니다.", response);
 	}
 
@@ -131,8 +117,8 @@ public class RankingController {
 			"모든 그룹에서의 활동 점수를 합산한 결과를 제공합니다."
 	)
 	@GetMapping("/me/total-score")
-	public ApiResponse<Long> getMyTotalScore(@CurrentUser Long userId) {
-		long totalScore = rankingService.getTotalScoreByUser(userId);
+	public ApiResponse<Long> getMyTotalScore(@CurrentUser User user) {
+		long totalScore = rankingService.getTotalScoreByUser(user.getId());
 		return ApiResponse.success("총 점수 조회가 완료되었습니다.", totalScore);
 	}
 

@@ -14,7 +14,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
+import com.goormi.routine.domain.calendar.service.CalendarIntegrationService;
 
 import java.time.LocalTime;
 import java.util.List;
@@ -34,6 +36,10 @@ public class GroupServiceTest {
     private GroupRepository groupRepository;
     @Autowired
     private UserRepository userRepository;
+    
+    // 캘린더 통합 서비스를 Mock으로 대체하여 실제 이벤트 처리 방지
+    @MockitoBean
+    private CalendarIntegrationService calendarIntegrationService;
 
     private Long leaderId;
     private Group savedGroup;
@@ -55,6 +61,7 @@ public class GroupServiceTest {
                 .groupDescription("test description")
                 .groupType(GroupType.FREE)
                 .maxMembers(3)
+                .isAlarm(true)
                 .build();
 
         GroupResponse response = groupService.createGroup(leader.getId(), request);
@@ -71,6 +78,7 @@ public class GroupServiceTest {
         assertThat(savedGroup).isNotNull();
         assertThat(savedGroup.getGroupName()).isEqualTo("test");
         assertThat(savedGroup.getGroupType()).isEqualTo(GroupType.FREE);
+        assertThat(savedGroup.getIsAlarm()).isEqualTo(true);
         assertThat(savedGroup.getLeader().getNickname()).isEqualTo(user.get().getNickname());
     }
 

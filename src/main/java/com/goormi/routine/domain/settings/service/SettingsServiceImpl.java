@@ -21,7 +21,6 @@ public class SettingsServiceImpl implements SettingsService {
 	private final UserSettingsRepository userSettingsRepository;
 
 	@Override
-	@Transactional(readOnly = true)
 	public SettingsResponse getSettings(Long userId) {
 		validateUserExists(userId);
 		UserSettings settings = getOrCreateSettings(userId);
@@ -85,9 +84,7 @@ public class SettingsServiceImpl implements SettingsService {
 	private UserSettings getOrCreateSettings(Long userId) {
 		return userSettingsRepository.findByUserId(userId)
 			.orElseGet(() -> {
-				UserSettings settings = UserSettings.builder()
-					.userId(userId)
-					.build();
+				UserSettings settings = UserSettings.createDefault(userId);
 				return userSettingsRepository.save(settings);
 			});
 	}

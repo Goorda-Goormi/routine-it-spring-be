@@ -29,7 +29,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
+import com.goormi.routine.domain.calendar.service.CalendarIntegrationService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -62,6 +64,10 @@ class UserActivityServiceTest {
     private PersonalRoutineService personalRoutineService;
     @Autowired
     private PersonalRoutineRepository personalRoutineRepository;
+    
+    // 캘린더 통합 서비스를 Mock으로 대체하여 실제 이벤트 처리 방지
+    @MockitoBean
+    private CalendarIntegrationService calendarIntegrationService;
 
     private User leader;
     private User user;
@@ -174,7 +180,7 @@ class UserActivityServiceTest {
     @DisplayName("개인 루틴 활동 생성 후 업데이트 성공")
     void update_personal_routine_activity_success() {
         // given
-        UserActivity activity = UserActivity.createActivity(user, savedRoutine);
+        UserActivity activity = UserActivity.createActivity(user, savedRoutine, true);
         userActivityRepository.save(activity);
 
         UserActivityRequest updateRequest = UserActivityRequest.builder()
@@ -199,7 +205,7 @@ class UserActivityServiceTest {
     @DisplayName("사용자 피드 조회")
     void getImagesFromUserActivity_success() {
         //given
-        UserActivity activity = UserActivity.createActivity(user, savedGroupMember, "1");
+        UserActivity activity = UserActivity.createActivity(user, savedGroupMember, "1", false);
         userActivityRepository.save(activity);
 
         UserActivity build1 = UserActivity.builder()

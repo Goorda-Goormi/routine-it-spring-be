@@ -39,6 +39,8 @@ public class ChatMessage {
     
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    private Boolean isApproved;
     
     @PrePersist
     protected void onCreate() {
@@ -47,6 +49,13 @@ public class ChatMessage {
 
     public boolean isAuthMessage() {
         return MessageType.NOTICE == this.messageType;
+    }
+
+    public void approveMessage() {
+        this.isApproved = true;
+    }
+    public void rejectMessage() {
+        this.isApproved = false;
     }
     
     public enum MessageType {

@@ -8,6 +8,7 @@ import lombok.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Getter
@@ -40,28 +41,33 @@ public class UserActivity {
     @JoinColumn(name = "member_id")
     private GroupMember groupMember;
 
+    @Column(length = 1000)
     private String imageUrl;
     private Boolean isPublic;
 
-    public static UserActivity createActivity (User user,PersonalRoutine personalRoutine) {
+    @PrePersist
+    public void prePersist() {
+        this.createdAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+        this.updatedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+    }
+
+    public static UserActivity createActivity (User user,PersonalRoutine personalRoutine, Boolean isPublic) {
         return UserActivity.builder()
                 .user(user)
                 .personalRoutine(personalRoutine)
                 .activityType(ActivityType.PERSONAL_ROUTINE_COMPLETE)
-                .activityDate(LocalDate.now())
-                .createdAt(LocalDateTime.now())
-                .isPublic(false)
+                .activityDate(LocalDate.now(ZoneId.of("Asia/Seoul")))
+                .isPublic(isPublic)
                 .build();
     }
-    public static UserActivity createActivity (User user, GroupMember groupMember, String imageUrl) {
+    public static UserActivity createActivity (User user, GroupMember groupMember, String imageUrl, Boolean isPublic) {
         return UserActivity.builder()
                 .user(user)
                 .groupMember(groupMember)
                 .imageUrl(imageUrl)
                 .activityType(ActivityType.GROUP_AUTH_COMPLETE)
-                .activityDate(LocalDate.now())
-                .createdAt(LocalDateTime.now())
-                .isPublic(false)
+                .activityDate(LocalDate.now(ZoneId.of("Asia/Seoul")))
+                .isPublic(isPublic)
                 .build();
     }
 
@@ -71,17 +77,14 @@ public class UserActivity {
         if (isPublic != null) this.isPublic = isPublic;
 
         if (this.activityDate == null) {
-            this.activityDate = LocalDate.now();
+            this.activityDate = LocalDate.now(ZoneId.of("Asia/Seoul"));
         }
 
         if (activityType == ActivityType.NOT_COMPLETED) {
             this.activityDate = null;
         }
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
     }
 
-
-
-
-
 }
+

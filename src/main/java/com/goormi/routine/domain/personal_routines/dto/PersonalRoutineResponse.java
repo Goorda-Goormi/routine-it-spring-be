@@ -13,6 +13,8 @@ public class PersonalRoutineResponse {
     private Integer userId;
     private String routineName;
     private String description;
+    private String category;
+    private String goal;
     private LocalTime startTime;
     private String repeatDays;
     private LocalDate startDate;

@@ -47,6 +47,18 @@ public class StorageController {
             "jpg","jpeg","png","webp","heic","heif"
     );
 
+
+    enum Visibility { PUBLIC, PRIVATE }
+
+    private Visibility parseVisibility(String v) {
+        if (v == null) return Visibility.PUBLIC;
+        try { return Visibility.valueOf(v.toUpperCase()); }
+        catch (IllegalArgumentException e) { return Visibility.PUBLIC; }
+    }
+
+    private String prefixFor(Visibility v) {
+        return (v == Visibility.PUBLIC) ? "public" : "private";
+    }
     // ---------- 공통 유틸 ----------
     private ResponseEntity<Map<String,String>> makePutUrl(String key, String contentType) {
         if (!TYPES.contains(contentType.toLowerCase())) {
@@ -98,13 +110,19 @@ public class StorageController {
             @Parameter(description = "사용자 ID", required = true) @RequestParam Long userId,
             @Parameter(description = "파일명 (확장자 필수)", required = true) @RequestParam String filename,
             @Parameter(description = "MIME 타입", example = "image/jpeg")
-            @RequestParam(defaultValue = "image/jpeg") String contentType) {
+            @RequestParam(defaultValue = "image/jpeg") String contentType,
+            @RequestParam(defaultValue = "PRIVATE") String visibility
+    ) {
 
         String ext = safeExt(filename);
         if (!EXTS.contains(ext)) {
             return ResponseEntity.badRequest().body(Map.of("error","ext must be jpg/jpeg/png/webp/heic/heif"));
         }
-        String key = "users/%d/profile/%s.%s".formatted(userId, UUID.randomUUID(), ext);
+
+        Visibility v = parseVisibility(visibility);
+        String prefix = prefixFor(v);
+
+        String key = "%s/users/%d/profile/%s.%s".formatted(prefix,userId, UUID.randomUUID(), ext);
         return makePutUrl(key, contentType);
     }
 
@@ -117,18 +135,21 @@ public class StorageController {
     public ResponseEntity<Map<String, String>> presignProofShotPut(
             @Parameter(description = "그룹 ID", required = true) @RequestParam Long groupId,
             @Parameter(description = "사용자 ID", required = true) @RequestParam Long userId,
-            @Parameter(description = "MIME 타입", example = "image/jpeg")
-            @RequestParam(defaultValue = "image/jpeg") String contentType,
-            @Parameter(description = "파일명", example = "photo.jpg")
-            @RequestParam(defaultValue = "photo.jpg") String filename) {
+            @Parameter(description = "MIME 타입", example = "image/jpeg") @RequestParam(defaultValue = "image/jpeg") String contentType,
+            @Parameter(description = "파일명", example = "photo.jpg") @RequestParam(defaultValue = "photo.jpg") String filename,
+            @Parameter(description = "공개 비공개", example="PUBLIC/PRIVATE") @RequestParam(defaultValue = "PRIVATE") String visibility
+    ) {
 
         String ext = safeExt(filename);
         if (!EXTS.contains(ext)) {
             return ResponseEntity.badRequest().body(Map.of("error","ext must be jpg/jpeg/png/webp/heic/heif"));
         }
+        Visibility v = parseVisibility(visibility);
+        String prefix = prefixFor(v);
+
         LocalDate d = LocalDate.now();
-        String key = "proof-shots/%d/%d/%d/%02d/%02d/%s.%s"
-                .formatted(groupId, userId, d.getYear(), d.getMonthValue(), d.getDayOfMonth(), UUID.randomUUID(), ext);
+        String key = "%s/proof-shots/%d/%d/%d/%02d/%02d/%s.%s"
+                .formatted(prefix ,groupId, userId, d.getYear(), d.getMonthValue(), d.getDayOfMonth(), UUID.randomUUID(), ext);
         return makePutUrl(key, contentType);
     }
 
@@ -144,7 +165,10 @@ public class StorageController {
             @Parameter(description = "MIME 타입", example = "image/jpeg")
             @RequestParam(defaultValue = "image/jpeg") String contentType,
             @Parameter(description = "파일명", example = "photo.jpg")
-            @RequestParam(defaultValue = "photo.jpg") String filename) {
+            @RequestParam(defaultValue = "photo.jpg") String filename,
+            @Parameter(description = "", example = "")
+            @RequestParam(defaultValue = "PUBLIC") String visibility
+            ) {
 
         String ext = safeExt(filename);
         if (!EXTS.contains(ext)) {

@@ -22,8 +22,12 @@ public interface UserActivityRepository extends JpaRepository<UserActivity, Long
     List<UserActivity> findByGroupMemberInAndActivityTypeAndActivityDate(
             List<GroupMember> groupMembers, ActivityType activityType,
             LocalDate activityDate);
+    List<UserActivity> findByGroupMemberAndActivityTypeAndActivityDate(
+            GroupMember groupMembers, ActivityType activityType,
+            LocalDate activityDate);
 
     List<UserActivity> findByUserIdAndActivityTypeOrderByCreatedAtDesc(Long userId, ActivityType activityType);
+    List<UserActivity> findByUserIdAndImageUrlIsNotNullAndActivityTypeOrderByCreatedAtDesc(Long userId, ActivityType activityType);
 
     long countByUserIdAndActivityTypeAndCreatedAtBetween(Long userId, ActivityType activityType, LocalDateTime startDate, LocalDateTime endDate);
     List<UserActivity> findByUserIdAndActivityTypeAndActivityDateBetween(Long userId, ActivityType activityType, LocalDate startDate, LocalDate endDate);
@@ -33,4 +37,9 @@ public interface UserActivityRepository extends JpaRepository<UserActivity, Long
 
     List<UserActivity> findByUserIdAndActivityTypeInAndActivityDateBetween(
             Long userId, List<ActivityType> activityTypes, LocalDate startDate, LocalDate endDate);
+
+    List<UserActivity> findByUserIdAndActivityDateBetween(Long userId, LocalDate startDate, LocalDate endDate);
+
+    long countByUserIdAndActivityTypeAndActivityDateBetween(Long userId, ActivityType activityType, LocalDate startDate, LocalDate endDate);
+
 }

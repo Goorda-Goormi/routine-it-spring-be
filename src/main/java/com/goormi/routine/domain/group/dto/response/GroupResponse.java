@@ -26,6 +26,8 @@ public class GroupResponse {
     private int maxMembers;
     private int currentMemberCount;
 
+    private boolean isAlarm;
+
     private boolean isActive;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -43,6 +45,7 @@ public class GroupResponse {
                 .groupImageUrl(group.getGroupImageUrl())
                 .maxMembers(group.getMaxMembers())
                 .currentMemberCount(group.getCurrentMemberCnt())
+                .isAlarm(group.getIsAlarm())
                 .isActive(group.isActive())
                 .createdAt(group.getCreatedAt())
                 .updatedAt(group.getUpdatedAt())

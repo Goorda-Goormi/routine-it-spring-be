@@ -17,6 +17,12 @@ public class PersonalRoutineUpdateRequest {
     @Size(max = 10_000)
     private String description;
 
+    @Size(max = 50)
+    private String category;
+
+    @Size(max = 255)
+    private String goal;
+
     private LocalTime startTime;
 
     @Pattern(regexp = "^[01]{7}$", message = "repeatDays는 7자리 0/1 문자열이어야 합니다.")

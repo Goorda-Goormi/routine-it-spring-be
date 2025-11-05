@@ -4,6 +4,7 @@ import com.goormi.routine.domain.chat.entity.ChatMessage.MessageType;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Setter
@@ -11,7 +12,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class ChatMessageDto {
-    
+
     private Long id;
     private Long roomId;
     private Long userId;
@@ -20,4 +21,6 @@ public class ChatMessageDto {
     private String imageUrl;
     private MessageType messageType;
     private LocalDateTime sentAt;
+    private Boolean isApproved;
+    private List<ReactionSummaryDto> reactions;
 }

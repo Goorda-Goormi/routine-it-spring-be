@@ -1,5 +1,6 @@
 package com.goormi.routine.domain.userActivity.service;
 
+import com.goormi.routine.domain.userActivity.dto.MonthlyAttendanceDashboardResponse;
 import com.goormi.routine.domain.userActivity.dto.UserActivityRequest;
 import com.goormi.routine.domain.userActivity.dto.UserActivityResponse;
 
@@ -21,4 +22,7 @@ public interface UserActivityService {
     boolean hasAttendanceOn(Long userId, LocalDate date);
     //누적출석일수
     int getTotalAttendanceDays(Long userId, LocalDate startDate, LocalDate endDate);
+
+    MonthlyAttendanceDashboardResponse getMonthlyAttendanceDashboard(Long userId, Long targetUserId, int year, int month);
+
 }

@@ -31,6 +31,12 @@ public class PersonalRoutine {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "category", length = 50, nullable = false)
+    private String category;   //카테고리 추가
+
+    @Column(name = "goal", length = 255)
+    private String goal;       //목표 추가
+
     @Column(name = "start_time", nullable = false)
     private LocalTime startTime;
 
@@ -63,8 +69,18 @@ public class PersonalRoutine {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @Column(name = "calendar_event_id", length = 1024)
+    private String calendarEventId;
+
     // 도메인 편의 메서드
     public void softDelete() { this.isDeleted = true; }
     public void toggleAlarm() { this.isAlarmOn = !this.isAlarmOn; }
     public void togglePublic() { this.isPublic = !this.isPublic; }
+
+    public void updateCalendarEventId(String calendarEventId) {
+        this.calendarEventId = calendarEventId;
+    }
+    public void clearCalendarEventId() {
+        this.calendarEventId = null;
+    }
 }

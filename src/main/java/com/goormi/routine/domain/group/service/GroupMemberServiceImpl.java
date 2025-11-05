@@ -1,5 +1,7 @@
 package com.goormi.routine.domain.group.service;
 
+import com.goormi.routine.domain.chat.entity.ChatMessage;
+import com.goormi.routine.domain.chat.repository.ChatMessageRepository;
 import com.goormi.routine.domain.group.dto.request.GroupJoinRequest;
 import com.goormi.routine.domain.group.dto.request.LeaderAnswerRequest;
 import com.goormi.routine.domain.group.dto.response.GroupMemberResponse;
@@ -21,17 +23,24 @@ import com.goormi.routine.domain.chat.repository.ChatMemberRepository;
 import com.goormi.routine.domain.chat.service.ChatService;
 import com.goormi.routine.domain.userActivity.dto.UserActivityRequest;
 import com.goormi.routine.domain.userActivity.service.UserActivityService;
+import com.goormi.routine.domain.calendar.service.CalendarIntegrationService.GroupMemberStatusChangeEvent;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.goormi.routine.domain.calendar.service.CalendarIntegrationService.*;
+
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -43,9 +52,11 @@ public class GroupMemberServiceImpl implements GroupMemberService {
     private final NotificationService notificationService;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMemberRepository chatMemberRepository;
+    private final ChatMessageRepository chatMessageRepository;
     private final ChatService chatService;
 
     private final UserActivityService userActivityService;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
 
     // 그룹에 멤버가 참여 신청시 펜딩으로 추가
@@ -111,8 +122,15 @@ public class GroupMemberServiceImpl implements GroupMemberService {
                 // 채팅방에 그룹 멤버 가입 알림 전송
                 chatService.notifyMemberJoin(chatRoom.getId(), userId);
             }
+            
+            // 저장 후 캘린더 연동을 위한 이벤트 발행
+            groupMemberRepository.save(groupMember);
+            log.info("자유 참여 그룹 가입 시 캘린더 이벤트 발행: groupMemberId={}, userId={}, groupId={}", 
+                    groupMember.getMemberId(), userId, group.getGroupId());
+            applicationEventPublisher.publishEvent(new GroupMemberStatusChangeEvent(groupMember));
+        } else {
+            groupMemberRepository.save(groupMember);
         }
-        groupMemberRepository.save(groupMember);
 
 
         return GroupMemberResponse.from(groupMember);
@@ -142,6 +160,24 @@ public class GroupMemberServiceImpl implements GroupMemberService {
                 .map(GroupMemberResponse::from)
                 .toList();
     }
+    @Override
+    @Transactional(readOnly = true)
+    public GroupMemberResponse getGroupMemberInfo(Long groupId, Long userId) {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(()->new IllegalArgumentException("Group not found"));
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(()->new IllegalArgumentException("User not found"));
+
+        GroupMember groupMember = groupMemberRepository.findByGroupAndUser(group, user)
+                .orElseThrow(()->new IllegalArgumentException("GroupMember not found"));
+
+        List<UserActivity> completedActivities = userActivityRepository
+                .findByGroupMemberAndActivityTypeAndActivityDate(groupMember, ActivityType.GROUP_AUTH_COMPLETE, LocalDate.now());
+
+        boolean isAuthToday = !completedActivities.isEmpty();
+        return GroupMemberResponse.from(groupMember, isAuthToday);
+    }
 
     // 그룹 멤버들의 인증 미인증 구분을 위함.
     @Override
@@ -151,7 +187,8 @@ public class GroupMemberServiceImpl implements GroupMemberService {
                 .orElseThrow(()->new IllegalArgumentException("Group not found"));
         List<GroupMember> groupMembers = groupMemberRepository.findAllByGroupAndStatus(group, GroupMemberStatus.JOINED);
         List<UserActivity> completedActivities = userActivityRepository.
-                findByGroupMemberInAndActivityTypeAndActivityDate(groupMembers, ActivityType.GROUP_AUTH_COMPLETE, LocalDate.now());
+                findByGroupMemberInAndActivityTypeAndActivityDate(
+                        groupMembers, ActivityType.GROUP_AUTH_COMPLETE, LocalDate.now(ZoneId.of("Asia/Seoul")));
 
         Set<Long> completedMemberIds = completedActivities.stream()
                 .map(activity -> activity.getGroupMember().getMemberId())
@@ -231,6 +268,12 @@ public class GroupMemberServiceImpl implements GroupMemberService {
             }
         }
         groupMember.changeStatus(newStatus); // JOINED, BLOCKED, LEFT
+        
+        // 캘린더 연동을 위한 이벤트 발행
+        log.info("그룹 멤버 상태 변경 이벤트 발행: groupMemberId={}, userId={}, 이전상태={}, 새상태={}", 
+                groupMember.getMemberId(), groupMember.getUser().getId(), oldStatus, newStatus);
+        applicationEventPublisher.publishEvent(new GroupMemberStatusChangeEvent(groupMember));
+        
         // 유저에게 역할 변경 알림
         notificationService.createNotification(NotificationType.GROUP_MEMBER_STATUS_UPDATED,
                 group.getLeader().getId(), groupMember.getUser().getId(), group.getGroupId());
@@ -290,14 +333,19 @@ public class GroupMemberServiceImpl implements GroupMemberService {
                 .imageUrl(leaderAnswerRequest.getImageUrl())
                 .build();
 
-        if (leaderAnswerRequest.isApproved()) {
+        ChatMessage chatMessage = chatMessageRepository.findById(leaderAnswerRequest.getChatMsgId())
+                .orElseThrow(()-> new IllegalArgumentException("chatMsg not found"));
+
+        if (leaderAnswerRequest.getIsApproved()) {
             userActivityService.create(groupMember.getUser().getId(), activityRequest);
             notificationService.createNotification(NotificationType.GROUP_TODAY_AUTH_COMPLETED,
                     group.getLeader().getId(), groupMember.getUser().getId(), group.getGroupId());
+            chatMessage.approveMessage();
         }
         else {
             notificationService.createNotification(NotificationType.GROUP_TODAY_AUTH_REJECTED,
                     group.getLeader().getId(), groupMember.getUser().getId(), group.getGroupId());
+            chatMessage.rejectMessage();
         }
     }
 
@@ -321,6 +369,19 @@ public class GroupMemberServiceImpl implements GroupMemberService {
         return groupMember;
     }
 
+    @Override
+    public void updateIsAlarm(Long groupId, Long userId, boolean isAlarm) {
+        Group group = groupRepository.findById(groupId).orElseThrow(()->new IllegalArgumentException("Group not found"));
+        User user = userRepository.findById(userId).orElseThrow(()->new IllegalArgumentException("User not found"));
+        GroupMember groupMember = groupMemberRepository.findByGroupAndUser(group, user).orElseThrow(()->new IllegalArgumentException("Member not found"));
+
+        if (isAlarm == groupMember.getIsAlarm()) {
+            return;
+        }
+        groupMember.changeIsAlarm(isAlarm);
+        applicationEventPublisher.publishEvent(new GroupMemberAlarmChangeEvent(groupMember));
+    }
+
     // -- Delete
     @Override
     public void delete(Long userId, Long groupId) { // 본인이 탈퇴하는 것, 리더는 블락 사용
@@ -340,6 +401,9 @@ public class GroupMemberServiceImpl implements GroupMemberService {
             throw new IllegalArgumentException("차단된 멤버는 떠날 수 없습니다.");
         }
         groupMember.changeStatus(GroupMemberStatus.LEFT);
+
+        // 캘린더 연동을 위한 이벤트 발행
+        applicationEventPublisher.publishEvent(new GroupMemberStatusChangeEvent(groupMember));
 
         // 채팅방에서 자동 탈퇴
         ChatRoom chatRoom = chatRoomRepository.findFirstByGroupIdAndIsActiveTrue(group.getGroupId())

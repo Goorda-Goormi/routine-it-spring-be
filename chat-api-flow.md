@@ -28,6 +28,21 @@
    - 입장: `/app/chat.enter/{roomId}`
    - 메시지: `/app/chat.send/{roomId}`
 
+## 이모지 리액션
+
+### REST API
+- **추가**: `POST /api/chat/messages/{messageId}/reactions` `{"emoji": "👍"}`
+- **제거**: `DELETE /api/chat/messages/{messageId}/reactions/{emoji}`
+- **조회**: `GET /api/chat/messages/{messageId}/reactions/summary`
+
+### WebSocket (실시간)
+- **추가**: `/app/chat.reaction.add/{roomId}` `{"messageId": 1, "emoji": "👍"}`
+- **제거**: `/app/chat.reaction.remove/{roomId}` `{"messageId": 1, "emoji": "👍"}`
+- **구독**: `/topic/room/{roomId}/reactions`
+
+### 메시지 조회 시 reactions 필드 포함
+- `GET /api/chat/rooms/{roomId}/messages` → `reactions: [{emoji: "👍", count: 5, userIds: [1,2,3]}]`
+
 ## 주요 차이점
 
 - **리더**: 그룹 생성 → 바로 채팅 가능

@@ -19,6 +19,7 @@ public class LeaderAnswerRequest {
     private Long groupId;
     private Long leaderId;
     private Long targetMemberId;
+    private Long chatMsgId;
 
     @Schema(description = "업데이트 할 그룹 멤버 상태")
     private GroupMemberStatus status;
@@ -27,7 +28,7 @@ public class LeaderAnswerRequest {
 
     // 유저액티비티 request
     @Schema(description = "인증 요청 수락 여부")
-    private boolean isApproved;
+    private Boolean isApproved;
     @Schema(description = "인증 요구하는 활동 날짜")
     private LocalDate activityDate;
     @Schema(description = "활동 인증 이미지 URL")

@@ -49,6 +49,12 @@ dependencies {
 	// Redis 관련 의존성
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	
+	// WebClient for 카카오 API 호출
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	// Google GenAI SDK
+	implementation 'com.google.genai:google-genai:1.24.0'
+	
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	runtimeOnly 'com.mysql:mysql-connector-j'

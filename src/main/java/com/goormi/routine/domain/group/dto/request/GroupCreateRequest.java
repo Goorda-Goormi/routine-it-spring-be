@@ -31,4 +31,6 @@ public class GroupCreateRequest {
     private String imageUrl;
     private int maxMembers;
 
+    private Boolean isAlarm;
+
 }
