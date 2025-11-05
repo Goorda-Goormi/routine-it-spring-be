@@ -1,5 +1,6 @@
 package com.goormi.routine.domain.ranking.entity;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import org.hibernate.annotations.UpdateTimestamp;
@@ -41,6 +42,13 @@ public class Ranking {
 	@Column(name = "score", nullable = false)
 	@Builder.Default
 	private Integer score = 0;
+
+	@Column(name = "consecutive_days")
+	@Builder.Default
+	private Integer consecutiveDays = 0;
+
+	@Column(name = "last_auth_date")
+	private LocalDate lastAuthDate;
 
 	@Column(name = "month_year", nullable = false, length = 7)
 	private String monthYear;

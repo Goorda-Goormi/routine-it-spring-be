@@ -8,6 +8,8 @@ import com.goormi.routine.domain.group.entity.GroupMember;
 import com.goormi.routine.domain.group.entity.GroupMemberStatus;
 import com.goormi.routine.domain.group.entity.GroupType;
 import com.goormi.routine.domain.group.repository.GroupMemberRepository;
+import com.goormi.routine.domain.ranking.entity.Ranking;
+import com.goormi.routine.domain.ranking.repository.RankingRepository;
 import com.goormi.routine.domain.user.entity.User;
 import com.goormi.routine.domain.group.repository.GroupRepository;
 import com.goormi.routine.domain.user.repository.UserRepository;
@@ -40,6 +42,7 @@ public class GroupServiceImpl implements GroupService {
     private final UserRepository userRepository;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMemberRepository chatMemberRepository;
+    private final RankingRepository rankingRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
 
     // -- create
@@ -221,6 +224,12 @@ public class GroupServiceImpl implements GroupService {
         // 캘린더 연동을 위한 이벤트 발행 (비활성화 전에 발행)
         log.info("그룹 삭제 이벤트 발행: groupId={}, groupName={}", groupId, group.getGroupName());
         applicationEventPublisher.publishEvent(new GroupDeletionEvent(group));
+
+        List<Ranking> groupRankings = rankingRepository.findAllByGroupId(groupId);
+        if (!groupRankings.isEmpty()) {
+            rankingRepository.deleteAllByGroupId(groupId);
+            log.info("그룹 {} 관련 랭킹 데이터 삭제 완료 ({}개)", groupId, groupRankings.size());
+        }
         
         group.deactivate(); // 비활성화 후 일정기간 후 삭제?
 //        groupRepository.delete(group);
