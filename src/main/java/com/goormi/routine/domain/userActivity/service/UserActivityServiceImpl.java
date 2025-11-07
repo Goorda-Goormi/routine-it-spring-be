@@ -50,6 +50,13 @@ public class UserActivityServiceImpl implements UserActivityService{
         if (request.getActivityType() == ActivityType.GROUP_AUTH_COMPLETE) {
             if (request.getGroupId() == null) throw new IllegalArgumentException("GroupId is null");
 
+            boolean exists = userActivityRepository.existsTodayGroupAuth(
+                userId,
+                ActivityType.GROUP_AUTH_COMPLETE,
+                LocalDate.now(ZoneId.of("Asia/Seoul")),
+                request.getGroupId()
+            );
+
             Group group = groupRepository.findById(request.getGroupId())
                     .orElseThrow(() -> new IllegalArgumentException("Group not found"));
             GroupMember groupMember = groupMemberRepository.findByGroupAndUser(group, user)
@@ -57,8 +64,19 @@ public class UserActivityServiceImpl implements UserActivityService{
 
             userActivity = UserActivity.createActivity(user, groupMember, request.getImageUrl(), request.getIsPublic());
 
-            int monthlyAuthCount = calculateMonthlyAuthCount(userId);
-            rankingService.updateRankingScore(userId, request.getGroupId(), monthlyAuthCount);
+            System.out.println("exists check: " + userActivityRepository
+                .findByUserIdAndActivityTypeAndActivityDateBetween(
+                    userId, ActivityType.GROUP_AUTH_COMPLETE,
+                    LocalDate.now(ZoneId.of("Asia/Seoul")),
+                    LocalDate.now(ZoneId.of("Asia/Seoul"))
+                ).stream()
+                .map(a -> a.getGroupMember().getGroup().getGroupId())
+                .toList()
+            );
+
+            if (!exists) {
+                rankingService.updateRankingScore(userId, request.getGroupId(), 1);
+            }
         }
         else if (request.getActivityType() == ActivityType.PERSONAL_ROUTINE_COMPLETE) {
             if (request.getPersonalRoutineId() == null) throw new IllegalArgumentException("PersonalRoutine Id is null");
@@ -71,7 +89,7 @@ public class UserActivityServiceImpl implements UserActivityService{
             userActivity = UserActivity.builder()
                     .user(user)
                     .activityType(ActivityType.DAILY_CHECKLIST)
-                    .activityDate(LocalDate.now())
+                    .activityDate(LocalDate.now(ZoneId.of("Asia/Seoul")))
                     .createdAt(LocalDateTime.now())
                     .isPublic(false)
                     .build();
@@ -84,24 +102,23 @@ public class UserActivityServiceImpl implements UserActivityService{
         return convertToResponse(saved);
     }
 
-
-    private int calculateMonthlyAuthCount(Long userId) {
-        try {
-            // 현재 월을 yyyy-MM 형식으로 가져옴
-            LocalDate startDate = LocalDate.now().withDayOfMonth(1);
-            LocalDate endDate = startDate.plusMonths(1).minusDays(1);
-
-            return (int) userActivityRepository
-                .countByUserIdAndActivityTypeAndCreatedAtBetween(
-                    userId,
-                    ActivityType.GROUP_AUTH_COMPLETE,
-                    startDate.atStartOfDay(),
-                    endDate.atTime(23, 59, 59)
-                );
-        } catch (Exception e) {
-            return 0;
-        }
-    }
+    // private int calculateMonthlyAuthCount(Long userId) {
+    //     try {
+    //         // 현재 월을 yyyy-MM 형식으로 가져옴
+    //         LocalDate startDate = LocalDate.now().withDayOfMonth(1);
+    //         LocalDate endDate = startDate.plusMonths(1).minusDays(1);
+    //
+    //         return (int) userActivityRepository
+    //             .countByUserIdAndActivityTypeAndCreatedAtBetween(
+    //                 userId,
+    //                 ActivityType.GROUP_AUTH_COMPLETE,
+    //                 startDate.atStartOfDay(),
+    //                 endDate.atTime(23, 59, 59)
+    //             );
+    //     } catch (Exception e) {
+    //         return 0;
+    //     }
+    // }
 
     @Override
     public UserActivityResponse updateActivity(Long userId, UserActivityRequest request) {
