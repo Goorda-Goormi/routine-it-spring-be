@@ -13,7 +13,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
@@ -47,6 +51,7 @@ public class StorageController {
             "jpg","jpeg","png","webp","heic","heif"
     );
 
+    private final S3Client s3;
 
     enum Visibility { PUBLIC, PRIVATE }
 
@@ -215,5 +220,43 @@ public class StorageController {
                 .getObjectRequest(gor));
 
         return Map.of("url", req.url().toString());
+    }
+
+    @Operation(
+            summary = "객체 삭제",
+            description = "S3 객체 키를 받아 해당 객체를 삭제합니다. 권한이 허용된 prefix(public/private) 하위만 삭제됩니다.",
+            responses = {
+                    @ApiResponse(responseCode = "204", description = "삭제 성공(또는 이미 없음)"),
+                    @ApiResponse(responseCode = "400", description = "허용되지 않은 키"),
+                    @ApiResponse(responseCode = "403", description = "권한 없음"),
+                    @ApiResponse(responseCode = "500", description = "서버 오류")
+            }
+    )
+    @DeleteMapping("/delete")
+    public ResponseEntity<Void> deleteObject(
+            @Parameter(description = "S3 객체 키", required = true, example = "public/users/1/profile/xxx.jpg")
+            @RequestParam String key
+    ) {
+        // 1) 키 검증: public/ 또는 private/ 로 시작하는지만 허용
+        if (key == null || !(key.startsWith("public/") || key.startsWith("private/"))) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        try {
+            DeleteObjectRequest req = DeleteObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build();
+            s3.deleteObject(req);
+
+            // 존재하지 않는 경우에도 S3는 204 유사 처리로 넘어갈 수 있음.
+            return ResponseEntity.noContent().build(); // 204
+        } catch (NoSuchKeyException e) {
+            // 이미 없는 경우: 204로 동일 처리하거나 404를 주고 싶다면 아래로 변경
+            return ResponseEntity.noContent().build();
+        } catch (SdkException e) {
+            // 권한, 네트워크 등
+            return ResponseEntity.status(500).build();
+        }
     }
 }
