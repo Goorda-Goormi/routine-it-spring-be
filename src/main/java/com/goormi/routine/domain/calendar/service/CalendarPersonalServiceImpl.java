@@ -322,7 +322,7 @@ public class CalendarPersonalServiceImpl implements CalendarPersonalService {
                 .event(eventUpdate)
                 .eventId(eventId)
                 .calendarId(calendarId)
-                .recurUpdateType("THIS_AND_FOLLOWING")
+                .recurUpdateType("ALL")
                 .build();
 
         log.debug("UpdateEventRequest 생성 완료: eventId={}, calendarId={}, recurUpdateType={}",
