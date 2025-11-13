@@ -8,7 +8,6 @@ import com.goormi.routine.domain.notification.dto.NotificationResponse;
 import com.goormi.routine.domain.notification.entity.Notification;
 import com.goormi.routine.domain.notification.entity.NotificationType;
 import com.goormi.routine.domain.notification.repository.NotificationRepository;
-import com.goormi.routine.domain.review.service.ReviewService;
 import com.goormi.routine.domain.user.entity.User;
 import com.goormi.routine.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +28,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final SseEmitterService sseEmitterService;
 
     @Override
     public NotificationResponse createNotification(NotificationType notificationType,
@@ -50,7 +50,9 @@ public class NotificationServiceImpl implements NotificationService {
                 .build();
 
             notificationRepository.save(notification);
-            return NotificationResponse.from(notification);
+            NotificationResponse response = NotificationResponse.from(notification);
+            sseEmitterService.sendNotification(receiver, response);
+            return response;
         }
 
         User sender = userRepository.findById(senderId)
@@ -94,7 +96,10 @@ public class NotificationServiceImpl implements NotificationService {
       
         Notification saved = notificationRepository.save(notification);
 
-        return NotificationResponse.from(saved);
+        NotificationResponse response = NotificationResponse.from(saved);
+        sseEmitterService.sendNotification(receiver, response);
+
+        return response;
     }
 
     @Override

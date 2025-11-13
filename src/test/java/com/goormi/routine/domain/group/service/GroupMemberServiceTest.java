@@ -16,7 +16,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
+import com.goormi.routine.domain.calendar.service.CalendarIntegrationService;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +38,10 @@ public class GroupMemberServiceTest {
     private GroupMemberRepository groupMemberRepository;
     @Autowired
     private UserRepository userRepository;
+    
+    // 캘린더 통합 서비스를 Mock으로 대체하여 실제 이벤트 처리 방지
+    @MockitoBean
+    private CalendarIntegrationService calendarIntegrationService;
 
     private Long leaderId;
     private Long userId;
@@ -67,6 +73,7 @@ public class GroupMemberServiceTest {
                 .groupDescription("test description")
                 .groupType(GroupType.REQUIRED)
                 .maxMembers(3)
+                .isAlarm(false)
                 .build();
 
         GroupResponse groupResponse = groupService.createGroup(leader.getId(), groupCreateRequest);
@@ -142,6 +149,15 @@ public class GroupMemberServiceTest {
         //when & then
         assertThatThrownBy(() -> groupMemberService.addMember(leaderId, savedGroup.getGroupId(), request))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("이미 참여 중이거나 대기 중입니다.");
+    }
+
+    @Test
+    @DisplayName("그룹멤버의 알람 변경")
+    public void updateIsAlarm() {
+        //when
+        groupMemberService.updateIsAlarm(savedGroup.getGroupId(), userId, true);
+        //then
+        assertThat(savedGroupMember.getIsAlarm()).isEqualTo(true);
     }
 
     @Test

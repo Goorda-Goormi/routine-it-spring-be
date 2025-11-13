@@ -3,6 +3,7 @@ package com.goormi.routine.domain.chat.service;
 import com.goormi.routine.domain.chat.dto.ChatMessageDto;
 import com.goormi.routine.domain.chat.dto.ChatRoomDto;
 import com.goormi.routine.domain.chat.dto.CreateChatRoomRequest;
+import com.goormi.routine.domain.chat.dto.ReactionSummaryDto;
 import com.goormi.routine.domain.chat.entity.ChatMember;
 import com.goormi.routine.domain.chat.entity.ChatMember.MemberRole;
 import com.goormi.routine.domain.chat.entity.ChatMessage;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -30,12 +32,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional
 public class ChatRoomServiceImpl implements ChatRoomService {
-    
+
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMemberRepository chatMemberRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final MessageReactionService messageReactionService;
     
     @Override
     public ChatRoomDto createRoom(CreateChatRoomRequest request, String username) {
@@ -193,19 +196,26 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     public Page<ChatMessageDto> getMessages(Long roomId, Long beforeMessageId, Pageable pageable, String username) {
         User user = userRepository.findByEmail(username)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
-        
+
         if (!chatMemberRepository.existsByRoomIdAndUserIdAndIsActiveTrue(roomId, user.getId())) {
             throw new IllegalArgumentException("채팅방에 참여하지 않은 사용자입니다");
         }
-        
+
         Page<ChatMessage> messages;
         if (beforeMessageId != null) {
             messages = chatMessageRepository.findByRoomIdAndIdLessThanOrderByCreatedAtDesc(roomId, beforeMessageId, pageable);
         } else {
             messages = chatMessageRepository.findByRoomIdOrderByCreatedAtDesc(roomId, pageable);
         }
-        
-        return messages.map(this::convertMessageToDto);
+
+        // Load reactions for all messages in the page
+        List<Long> messageIds = messages.getContent().stream()
+                .map(ChatMessage::getId)
+                .collect(Collectors.toList());
+
+        Map<Long, List<ReactionSummaryDto>> reactionsMap = messageReactionService.getReactionsByMessageIds(messageIds);
+
+        return messages.map(message -> convertMessageToDto(message, reactionsMap.get(message.getId())));
     }
     
     private ChatRoomDto convertToDto(ChatRoom room, String creatorNickname, int participantCount) {
@@ -230,8 +240,25 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                 .userId(message.getUserId())
                 .senderNickname(message.getSenderNickname())
                 .message(message.getMessage())
+                .imageUrl(message.getImageUrl())
                 .messageType(message.getMessageType())
                 .sentAt(message.getCreatedAt())
+                .isApproved(message.getIsApproved() != null && message.getIsApproved())
+                .build();
+    }
+
+    private ChatMessageDto convertMessageToDto(ChatMessage message, List<ReactionSummaryDto> reactions) {
+        return ChatMessageDto.builder()
+                .id(message.getId())
+                .roomId(message.getRoomId())
+                .userId(message.getUserId())
+                .senderNickname(message.getSenderNickname())
+                .message(message.getMessage())
+                .imageUrl(message.getImageUrl())
+                .messageType(message.getMessageType())
+                .sentAt(message.getCreatedAt())
+                .isApproved(message.getIsApproved() != null && message.getIsApproved())
+                .reactions(reactions)
                 .build();
     }
 }

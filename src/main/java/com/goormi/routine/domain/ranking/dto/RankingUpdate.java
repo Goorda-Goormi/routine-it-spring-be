@@ -13,7 +13,7 @@ import lombok.Setter;
 @Builder
 public class RankingUpdate {
 	private Long userId;
-	private Long groupId; // null이면 개인 전체 랭킹
+	private Long groupId;
 	private String monthYear;
 	private Integer newScore;
 	private ScoreCalculation scoreCalculation;

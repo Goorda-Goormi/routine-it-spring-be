@@ -1,5 +1,6 @@
 package com.goormi.routine.domain.userActivity.controller;
 
+import com.goormi.routine.domain.userActivity.dto.MonthlyAttendanceDashboardResponse;
 import com.goormi.routine.domain.userActivity.dto.UserActivityRequest;
 import com.goormi.routine.domain.userActivity.dto.UserActivityResponse;
 import com.goormi.routine.domain.userActivity.service.UserActivityService;
@@ -111,4 +112,29 @@ public class UserActivityController {
         int total = userActivityService.getTotalAttendanceDays(id, startDate, endDate);
         return ResponseEntity.ok(total);
     }
+
+
+    //달별로 볼수있는 출석체크
+    @Operation(
+            summary = "월별 출석 대시보드",
+            description = "연/월별 날짜별 출석 여부(달력)와 요약(출석수/출석률/연속기록/타입별 집계)을 반환합니다. " +
+                    "targetUserId가 없으면 본인 기준으로 조회합니다."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "대시보드 조회 성공"),
+            @ApiResponse(responseCode = "401", description = "인증되지 않은 사용자"),
+            @ApiResponse(responseCode = "400", description = "잘못된 요청")
+    })
+    @GetMapping("/attendance/monthly-dashboard")
+    public ResponseEntity<MonthlyAttendanceDashboardResponse> getMonthlyAttendanceDashboard(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(required = false) Long targetUserId
+    ) {
+        MonthlyAttendanceDashboardResponse resp =
+                userActivityService.getMonthlyAttendanceDashboard(userId, targetUserId, year, month);
+        return ResponseEntity.ok(resp);
+    }
+
 }

@@ -20,8 +20,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import com.goormi.routine.domain.calendar.service.CalendarIntegrationService;
 
 import java.util.List;
 
@@ -46,6 +48,10 @@ class NotificationServiceTest {
     private GroupMemberService groupMemberService;
     @Autowired
     private GroupMemberRepository groupMemberRepository;
+    
+    // 캘린더 통합 서비스를 Mock으로 대체하여 실제 이벤트 처리 방지
+    @MockitoBean
+    private CalendarIntegrationService calendarIntegrationService;
 
     private User leader;
     private User user;

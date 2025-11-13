@@ -20,6 +20,13 @@ public class PersonalRoutineRequest {
     @Size(max = 10_000)
     private String description;
 
+    @NotBlank
+    @Size(max = 50)
+    private String category;   // 추가됨
+
+    @Size(max = 255)
+    private String goal;       // 추가됨
+
     @NotNull
     private LocalTime startTime;
 

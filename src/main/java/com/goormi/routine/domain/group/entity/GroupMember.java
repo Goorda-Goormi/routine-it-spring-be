@@ -6,12 +6,14 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Slf4j
 public class GroupMember {
 
     @Id
@@ -39,6 +41,11 @@ public class GroupMember {
 
     private LocalDateTime updatedAt;
 
+    private Boolean isAlarm;
+
+    @Column(name = "calendar_event_id", length = 1024)
+    private String calendarEventId; // 카카오 캘린더 이벤트 ID
+
 
     @Builder
     private GroupMember(Group group, User user, GroupMemberRole role, GroupMemberStatus status) {
@@ -46,6 +53,7 @@ public class GroupMember {
         this.user = user;
         this.role = role;
         this.status = status;
+        this.isAlarm = group.getIsAlarm();
     }
 
     public static GroupMember createGroupMember (Group group, User user, GroupMemberRole role, GroupMemberStatus status) {
@@ -70,6 +78,35 @@ public class GroupMember {
     public void changeStatus(GroupMemberStatus status) {
         this.status = status;
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public void changeIsAlarm(boolean isAlarm) {
+        this.isAlarm = isAlarm;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 캘린더 이벤트 ID 업데이트 (그룹 가입 시 호출)
+     */
+    public void updateCalendarEventId(String eventId) {
+        this.calendarEventId = eventId;
+        this.updatedAt = LocalDateTime.now();
+        log.debug("캘린더 이벤트 ID 업데이트 eventId: {}", eventId);
+    }
+
+    /**
+     * 캘린더 이벤트 ID 제거 (그룹 탈퇴 시 호출)
+     */
+    public void clearCalendarEventId() {
+        this.calendarEventId = null;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 캘린더 이벤트가 연동되어 있는지 확인
+     */
+    public boolean hasCalendarEvent() {
+        return this.calendarEventId != null && !this.calendarEventId.trim().isEmpty();
     }
 
 

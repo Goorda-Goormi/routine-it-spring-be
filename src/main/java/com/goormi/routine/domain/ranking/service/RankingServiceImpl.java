@@ -2,16 +2,20 @@ package com.goormi.routine.domain.ranking.service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,9 +53,15 @@ public class RankingServiceImpl implements RankingService {
 	private final RankingRedisRepository rankingRedisRepository;
 	private final UserActivityRepository userActivityRepository;
 
+	private String getCurrentMonthYear() {
+		return LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
+	}
+
 	@Override
-	public Page<PersonalRankingResponse> getPersonalRankings(String monthYear, Pageable pageable, Long currentUserId) {
-		Page<Object[]> rankingPage = rankingRepository.findPersonalRankingsByMonth(monthYear, pageable);
+	public Page<PersonalRankingResponse> getPersonalRankings(Pageable pageable, Long currentUserId) {
+		String currentMonthYear = getCurrentMonthYear();
+
+		Page<Object[]> rankingPage = rankingRepository.findPersonalRankingsByMonth(currentMonthYear, pageable);
 
 		List<PersonalRankingResponse> rankings = new ArrayList<>();
 		int startRank = pageable.getPageNumber() * pageable.getPageSize() + 1;
@@ -71,9 +81,8 @@ public class RankingServiceImpl implements RankingService {
 				.nickname(user != null ? user.getNickname() : "탈퇴한 사용자")
 				.totalScore(totalScore)
 				.totalParticipants((int) rankingPage.getTotalElements())
-				.monthYear(monthYear)
-				.consecutiveDays(calculateConsecutiveDays(userId))
-				.groupDetails(getGroupDetailsByUserId(userId, monthYear))
+				.monthYear(currentMonthYear)
+				.groupDetails(getGroupDetailsByUserId(userId, currentMonthYear))
 				.isCurrentUser(isCurrentUser) // 현재 사용자 여부 추가
 				.updatedAt(LocalDateTime.now())
 				.build();
@@ -85,35 +94,36 @@ public class RankingServiceImpl implements RankingService {
 	}
 
 	@Override
-	public Page<GlobalGroupRankingResponse.GroupRankingItem> getGlobalGroupRankings(
-		String monthYear, String category, String groupType, Pageable pageable
+	public GlobalGroupRankingResponse getGlobalGroupRankings(
+		String category, String groupType, Pageable pageable
 	) {
-		Page<Object[]> groupPage = rankingRepository.findGroupRankingsByMonthAndFilters(
-			monthYear, category, groupType, pageable);
+		String currentMonthYear = getCurrentMonthYear();
 
-		List<GlobalGroupRankingResponse.GroupRankingItem> rankings = new ArrayList<>();
-		int startRank = pageable.getPageNumber() * pageable.getPageSize() + 1;
+		List<Group> allGroups = groupRepository.findAllByIsActive(true);
 
-		for (int i = 0; i < groupPage.getContent().size(); i++) {
-			Object[] row = groupPage.getContent().get(i);
-			Long groupId = ((Number) row[0]).longValue();
+		List<GlobalGroupRankingResponse.GroupRankingItem> allRankings = new ArrayList<>();
 
-			GroupScoreData scoreData = calculateGroupScore(groupId, monthYear);
+		for (Group group : allGroups) {
+			if (category != null && !group.getCategory().equals(category)) {
+				continue;
+			}
+			if (groupType != null && !group.getGroupType().name().equals(groupType)) {
+				continue;
+			}
+
+			GroupScoreData scoreData = calculateGroupScore(group.getGroupId(), currentMonthYear);
 
 			if (scoreData.getGroup() != null) {
-				Group group = scoreData.getGroup();
-
-				int memberCount = groupMemberRepository.countMembersByGroupId(groupId);
-				int activeMembers = groupMemberRepository.countActiveByGroupId(groupId, monthYear);
-				int totalAuthCount = groupMemberRepository.countAuthByGroupId(groupId, monthYear);
+				int memberCount = groupMemberRepository.countMembersByGroupId(group.getGroupId());
+				int activeMembers = groupMemberRepository.countActiveByGroupId(group.getGroupId(), currentMonthYear);
+				int totalAuthCount = groupMemberRepository.countAuthByGroupId(group.getGroupId(), currentMonthYear);
 
 				double participationRate = memberCount > 0 ? (double)activeMembers / memberCount : 0.0;
 				double averageAuthPerMember = memberCount > 0 ? (double)totalAuthCount / memberCount : 0.0;
 
 				GlobalGroupRankingResponse.GroupRankingItem item =
 					GlobalGroupRankingResponse.GroupRankingItem.builder()
-						.rank(startRank + i)
-						.groupId(groupId)
+						.groupId(group.getGroupId())
 						.groupName(group.getGroupName())
 						.groupImageUrl(group.getGroupImageUrl())
 						.category(group.getCategory())
@@ -126,15 +136,36 @@ public class RankingServiceImpl implements RankingService {
 						.averageAuthPerMember(Math.round(averageAuthPerMember * 100.0) / 100.0)
 						.build();
 
-				rankings.add(item);
+				allRankings.add(item);
 			}
 		}
 
-		return new PageImpl<>(rankings, pageable, groupPage.getTotalElements());
+		allRankings.sort((a, b) -> Integer.compare(b.getTotalScore(), a.getTotalScore()));
+
+		IntStream.range(0, allRankings.size()).forEach(i ->
+			allRankings.get(i).setRank(i + 1)
+		);
+
+		int pageNumber = pageable.getPageNumber();
+		int pageSize = pageable.getPageSize();
+		int start = pageNumber * pageSize;
+		int end = Math.min(start + pageSize, allRankings.size());
+
+		List<GlobalGroupRankingResponse.GroupRankingItem> pagedRankings =
+			allRankings.subList(start, end);
+
+		return GlobalGroupRankingResponse.builder()
+			.rankings(pagedRankings)
+			.monthYear(currentMonthYear)
+			.totalGroups(allRankings.size())
+			.updatedAt(LocalDateTime.now())
+			.build();
 	}
 
 	@Override
-	public GroupTop3RankingResponse getTop3RankingsByGroup(Long groupId, String monthYear) {
+	public GroupTop3RankingResponse getTop3RankingsByGroup(Long groupId) {
+		String currentMonthYear = getCurrentMonthYear();
+
 		if (groupId == null) {
 			throw new IllegalArgumentException("그룹 ID는 필수입니다.");
 		}
@@ -142,14 +173,16 @@ public class RankingServiceImpl implements RankingService {
 		Group group = groupRepository.findById(groupId)
 			.orElseThrow(() -> new IllegalArgumentException("존재하지 않는 그룹입니다."));
 
-		List<Ranking> top3Rankings = rankingRepository.findTop3UsersByGroupId(groupId);
+		Pageable top3Pageable = PageRequest.of(0, 3);
+
+		List<Ranking> top3Rankings = rankingRepository.findTop3UsersByGroupId(groupId, currentMonthYear, top3Pageable);
 
 		if (top3Rankings.isEmpty()) {
 			return GroupTop3RankingResponse.builder()
 				.groupId(groupId)
 				.top3Users(Collections.emptyList())
 				.totalMembers(0)
-				.monthYear(monthYear)
+				.monthYear(currentMonthYear)
 				.updatedAt(LocalDateTime.now())
 				.build();
 		}
@@ -162,12 +195,12 @@ public class RankingServiceImpl implements RankingService {
 					Ranking ranking = top3Rankings.get(index);
 					User user = ranking.getUser();
 
-					int authCount = calculateGroupAuthCount(ranking.getUserId(), groupId, monthYear);
-					int consecutiveDays = calculateConsecutiveDays(ranking.getUserId());
+					int authDays = calculateGroupAuthDays(ranking.getUserId(), groupId, currentMonthYear);
+					int consecutiveDays = calculateGroupConsecutiveDays(ranking.getUserId(), groupId);
 
 					int finalScore = ranking.getScore();
 
-					int baseScore = authCount * 10;
+					int baseScore = 10;
 					double consecutiveBonus = calculateConsecutiveBonus(consecutiveDays);
 
 					GroupTop3RankingResponse.ScoreBreakdown scoreBreakdown =
@@ -185,7 +218,7 @@ public class RankingServiceImpl implements RankingService {
 						.nickname(user != null ? user.getNickname() : "탈퇴한 사용자")
 						.profileImageUrl(user != null ? user.getProfileImageUrl() : null)
 						.score(finalScore)
-						.authCount(authCount)
+						.authCount(authDays)
 						.consecutiveDays(consecutiveDays)
 						.consecutiveBonus(consecutiveBonus)
 						.scoreBreakdown(scoreBreakdown)
@@ -198,7 +231,7 @@ public class RankingServiceImpl implements RankingService {
 			.groupName(group.getGroupName())
 			.groupType(group != null ? group.getGroupType().name() : null)
 			.groupWeightMultiplier(groupWeightMultiplier)
-			.monthYear(monthYear)
+			.monthYear(currentMonthYear)
 			.top3Users(userRankingItems)
 			.totalMembers(groupMemberRepository.countMembersByGroupId(groupId))
 			.updatedAt(LocalDateTime.now())
@@ -208,63 +241,97 @@ public class RankingServiceImpl implements RankingService {
 	@Override
 	@Transactional
 	public void updateRankingScore(Long userId, Long groupId, int authCount) {
+		String currentMonthYear = getCurrentMonthYear();
+
 		if (userId == null) {
 			throw new IllegalArgumentException("사용자 ID는 필수입니다.");
 		}
 		if (groupId == null) {
 			throw new IllegalArgumentException("그룹 ID는 필수입니다.");
 		}
-		if (authCount < 0) {
-			throw new IllegalArgumentException("인증 횟수는 0 이상이어야 합니다.");
-		}
 
-		int baseScore = authCount * 10;
-		int consecutiveDays = calculateConsecutiveDays(userId);
+		int baseScore = 10;
+		int consecutiveDays = calculateGroupConsecutiveDays(userId, groupId);
 		double consecutiveBonus = calculateConsecutiveBonus(consecutiveDays);
 		int finalScore = baseScore + (int)consecutiveBonus;
 
-		updateGroupScore(userId, groupId, finalScore);
+		updateGroupScore(userId, groupId, finalScore, consecutiveDays, currentMonthYear);
 	}
 
 	@Override
 	@Transactional
-	public void updateGroupScore(Long userId, Long groupId, int finalScore) {
-		Optional<Ranking> existingRanking = rankingRepository.findByUserIdAndGroupId(userId, groupId);
+	public void updateGroupScore(Long userId, Long groupId, int finalScore, int consecutiveDays, String monthYear) {
+		String currentMonthYear = getCurrentMonthYear();
+		LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+		Optional<Ranking> existingRanking = rankingRepository.findByUserIdAndGroupIdAndMonthYear(userId, groupId, currentMonthYear);
 
 		if (existingRanking.isPresent()) {
 			Ranking ranking = existingRanking.get();
+
+			LocalDateTime lastUpdate = ranking.getUpdatedAt();
+			LocalDate lastUpdateDate = lastUpdate.toLocalDate();
+
+			if (lastUpdateDate.equals(today)) {
+				log.info("그룹 점수 업데이트 실패: 사용자 ID = {}, 그룹 ID = {}, 오늘 이미 점수를 받았습니다.",
+					userId, groupId);
+				return;
+			}
+
 			ranking.setScore(ranking.getScore() + finalScore);
+			ranking.setConsecutiveDays(consecutiveDays);
+			ranking.setLastAuthDate(today);
 			ranking.setUpdatedAt(LocalDateTime.now());
 			rankingRepository.save(ranking);
 			log.info("그룹 점수 업데이트: 사용자 ID = {}, 그룹 ID = {}, 기본 점수 = {}, 총 점수 = {}",
 				userId, groupId, finalScore, ranking.getScore());
 		} else {
-			initializeRanking(userId, groupId);
-			updateGroupScore(userId, groupId, finalScore);
+			Long rankingId = Math.abs(UUID.randomUUID().getMostSignificantBits());
+
+			Ranking newRanking = Ranking.builder()
+				.rankingId(rankingId)
+				.userId(userId)
+				.groupId(groupId)
+				.score(finalScore)
+				.consecutiveDays(consecutiveDays)
+				.lastAuthDate(today)
+				.monthYear(currentMonthYear)
+				.updatedAt(LocalDateTime.now())
+				.build();
+
+			rankingRepository.save(newRanking);
+			log.info("새로운 랭킹 생성: 사용자 ID = {}, 그룹 ID = {}, 초기 점수 = {}, 월 = {}",
+				userId, groupId, finalScore, currentMonthYear);
 		}
 	}
 
 	@Override
 	@Transactional
 	public void resetMonthlyRankings() {
-		String currentMonth = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
-
+		String currentMonthYear = getCurrentMonthYear();
 		List<Ranking> allRankings = rankingRepository.findAll();
 		if (allRankings.isEmpty()) {
 			log.warn("리셋할 랭킹 데이터가 없습니다.");
 			return;
 		}
 
-		for (Ranking ranking : allRankings) {
-			ranking.setScore(0);
-			ranking.setMonthYear(currentMonth);
-			ranking.setUpdatedAt(LocalDateTime.now());
+		rankingRedisRepository.saveLastResetMonth(currentMonthYear);
+		recalculateAllGroupScores(currentMonthYear);
+
+		log.info("월별 랭킹 리셋 완료 ({}로 갱신)", currentMonthYear);
+
+	}
+
+	@Transactional
+	private void recalculateAllGroupScores(String monthYear) {
+		List<Group> allGroups = groupRepository.findAll();
+
+		for (Group group : allGroups) {
+			List<GroupMember> members = groupMemberRepository.findAllByGroupId(group.getGroupId());
+			for (GroupMember member : members) {
+				int authDays = calculateGroupAuthDays(member.getUser().getId(), group.getGroupId(), monthYear);
+				updateRankingScore(member.getUser().getId(), group.getGroupId(), authDays);
+			}
 		}
-
-		rankingRepository.saveAll(allRankings);
-		rankingRedisRepository.saveLastResetMonth(currentMonth);
-
-		log.info("월별 랭킹 리셋 완료: 총 {} 개의 랭킹이 리셋되었습니다", allRankings.size());
 
 	}
 
@@ -287,10 +354,10 @@ public class RankingServiceImpl implements RankingService {
 		}
 
 		String currentMonthYear = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
-		Optional<Ranking> existingRanking = rankingRepository.findByUserIdAndGroupId(userId, groupId);
+		Optional<Ranking> existingRanking = rankingRepository.findByUserIdAndGroupIdAndMonthYear(userId, groupId, currentMonthYear);
 
 		if (existingRanking.isEmpty()) {
-			Long rankingId = System.currentTimeMillis();
+			Long rankingId = Math.abs(UUID.randomUUID().getMostSignificantBits());
 
 			Ranking newRanking = Ranking.builder()
 				.rankingId(rankingId)
@@ -301,51 +368,65 @@ public class RankingServiceImpl implements RankingService {
 				.updatedAt(LocalDateTime.now())
 				.build();
 
-			rankingRepository.save(newRanking);
-			log.info("새로운 랭킹 초기화: 사용자 ID = {}, 그룹 ID = {}, 월 = {}",
-				userId, groupId, currentMonthYear);
+			try {
+				rankingRepository.save(newRanking);
+				log.info("새로운 랭킹 초기화: 사용자 ID = {}, 그룹 ID = {}, 월 = {}",
+					userId, groupId, currentMonthYear);
+			} catch (Exception e) {
+				log.error("랭킹 초기화 실패: 사용자 ID = {}, 그룹 ID = {}", userId, groupId, e);
+				throw new RuntimeException("랭킹 초기화에 실패했습니다.", e);
+			}
 		}
 	}
 
-	private GroupScoreData calculateGroupScore(Long groupId, String monthYear) {
-		List<Ranking> memberRankings = rankingRepository.findAllUsersByGroupIdAndMonthOrderByScore(groupId, monthYear);
+	private GroupScoreData calculateGroupScore(Long groupId, String currentMonthYear) {
+		List<Ranking> memberRankings = rankingRepository
+			.findAllUsersByGroupIdAndMonthOrderByScore(groupId, currentMonthYear);
 
-		if (memberRankings.isEmpty()) {
-			return new GroupScoreData(groupId, null, 0, 0, 0);
+		Group group = groupRepository.findById(groupId).orElse(null);
+
+		if (group == null || memberRankings.isEmpty()) {
+			return new GroupScoreData(groupId, group, 0, 0, 0);
 		}
 
-		Group group = memberRankings.get(0).getGroup();
 		int membersTotalScore = memberRankings.stream().mapToInt(Ranking::getScore).sum();
-		int participationBonus = calculateSimpleParticipationBonus(groupId, monthYear);
+		int participationBonus = calculateSimpleParticipationBonus(groupId, currentMonthYear);
 		int finalScore = membersTotalScore + participationBonus;
 
 		return new GroupScoreData(groupId, group, finalScore, membersTotalScore, participationBonus);
 	}
 
-	private int calculateConsecutiveDays(Long userId) {
+
+	private int calculateGroupConsecutiveDays(Long userId, Long groupId) {
 		try {
-			List<UserActivity> activities = userActivityRepository
-				.findByUserIdAndActivityTypeOrderByCreatedAtDesc(userId, ActivityType.GROUP_AUTH_COMPLETE);
+			LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
-			if (activities.isEmpty()) {
-				return 0;
+			Optional<Ranking> existingRanking = rankingRepository
+				.findByUserIdAndGroupIdAndMonthYear(
+					userId,
+					groupId,
+					LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"))
+				);
+
+			if (existingRanking.isEmpty()) {
+				return 1;
 			}
 
-			int consecutiveDays = 0;
-			LocalDate currentDate = LocalDate.now();
+			Ranking ranking = existingRanking.get();
+			LocalDate lastAuthDate = ranking.getLastAuthDate();
 
-			for (UserActivity activity : activities) {
-				LocalDate activityDate = activity.getCreatedAt().toLocalDate();
-				if (activityDate.equals(currentDate.minusDays(consecutiveDays))) {
-					consecutiveDays++;
-				} else {
-					break;
-				}
+			if (lastAuthDate == null) {
+				return 1;
 			}
 
-			return consecutiveDays;
+			if (lastAuthDate.equals(today.minusDays(1))) {
+				return ranking.getConsecutiveDays() + 1;
+			} else if (lastAuthDate.equals(today)) {
+				return ranking.getConsecutiveDays();
+			} else {
+				return 1;
+			}
 		} catch (Exception e) {
-			log.warn("연속 일수 계산 실패: 사용자 ID = {}", userId, e);
 			return 0;
 		}
 	}
@@ -358,36 +439,42 @@ public class RankingServiceImpl implements RankingService {
 			return activeGroups.stream()
 				.map(groupMember -> {
 					Group group = groupMember.getGroup();
-					int authCount = calculateGroupAuthCount(userId, group.getGroupId(), monthYear);
+					int authDays = calculateGroupAuthDays(userId, group.getGroupId(), monthYear);
 
 					return PersonalRankingResponse.GroupRankingDetail.builder()
 						.groupId(group.getGroupId())
 						.groupName(group.getGroupName())
-						.authCount(authCount)
-						.groupType(group.getGroupType().name())
+						.authCount(authDays)
+						.groupType(group.getGroupType() != null ? group.getGroupType().name() : "")
 						.build();
 				})
 				.collect(Collectors.toList());
 		} catch (Exception e) {
-			log.warn("그룹별 상세 정보 조회 실패: 사용자 ID = {}", userId, e);
-			return Collections.emptyList();
+			log.warn("그룹별 상세 정보 조회 실패: 사용자 ID = {}, 오류 = {}", userId, e.getMessage());
+			return new ArrayList<>();
 		}
 	}
 
-	private int calculateGroupAuthCount(Long userId, Long groupId, String monthYear) {
+	private int calculateGroupAuthDays(Long userId, Long groupId, String monthYear) {
 		try {
 			LocalDate startDate = LocalDate.parse(monthYear + "-01");
 			LocalDate endDate = startDate.plusMonths(1).minusDays(1);
 
-			return (int) userActivityRepository
-				.countByUserIdAndActivityTypeAndCreatedAtBetween(
-					userId,
-					ActivityType.GROUP_AUTH_COMPLETE,
-					startDate.atStartOfDay(),
-					endDate.atTime(23, 59, 59)
-				);
+			List<UserActivity> activities = userActivityRepository
+				.findByUserIdAndActivityTypeAndCreatedAtBetween(
+				userId,
+				ActivityType.GROUP_AUTH_COMPLETE,
+				startDate.atStartOfDay(),
+				endDate.atTime(23, 59, 59)
+			);
+
+			Set<LocalDate> uniqueDates = activities.stream()
+				.map(activity -> activity.getCreatedAt().toLocalDate())
+				.collect(Collectors.toSet());
+
+			return uniqueDates.size();
 		} catch (Exception e) {
-			log.warn("그룹 인증 횟수 계산 실패: 사용자 ID = {}, 그룹 ID = {}", userId, groupId, e);
+			log.warn("그룹 일일 인증 일수 계산 실패: 사용자 ID = {}, 그룹 ID = {}", userId, groupId, e);
 			return 0;
 		}
 	}
@@ -407,12 +494,15 @@ public class RankingServiceImpl implements RankingService {
 	}
 
 	private double calculateConsecutiveBonus(int consecutiveDays) {
-		if (consecutiveDays <= 2 && consecutiveDays < 30) {
-			return consecutiveDays * 0.5;
-		} else if (consecutiveDays >= 30) {
-			return 15;
+		if (consecutiveDays < 1) {
+			return 0;
 		}
-		return 0;
+
+		if (consecutiveDays < 30) {
+			return consecutiveDays * 0.5;
+		}
+
+		return 15;
 	}
 
 	private int calculateGroupMembersTotalScore(Long groupId) {

@@ -1,7 +1,10 @@
 package com.goormi.routine.domain.chat.controller;
 
+import com.goormi.routine.domain.chat.dto.AddReactionRequest;
 import com.goormi.routine.domain.chat.dto.ChatMessageDto;
+import com.goormi.routine.domain.chat.dto.MessageReactionDto;
 import com.goormi.routine.domain.chat.service.ChatService;
+import com.goormi.routine.domain.chat.service.MessageReactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
@@ -18,8 +21,9 @@ import java.security.Principal;
 @Controller
 @RequiredArgsConstructor
 public class ChatController {
-    
+
     private final ChatService chatService;
+    private final MessageReactionService messageReactionService;
     private final SimpMessagingTemplate messagingTemplate;
     
     @MessageMapping("/chat.send/{roomId}")
@@ -79,10 +83,48 @@ public class ChatController {
     public void userOffline(
             @DestinationVariable Long roomId,
             Principal principal) {
-        
+
         log.debug("User {} is now offline in room {}", principal.getName(), roomId);
-        
+
         Long userId = Long.parseLong(principal.getName());
         chatService.handleUserOffline(roomId, userId);
+    }
+
+    @MessageMapping("/chat.reaction.add/{roomId}")
+    public void addReaction(
+            @DestinationVariable Long roomId,
+            @Payload AddReactionRequest request,
+            Principal principal) {
+
+        log.info("User {} adding reaction {} in room {}", principal.getName(), request.getEmoji(), roomId);
+
+        Long userId = Long.parseLong(principal.getName());
+        Long messageId = request.getMessageId();
+
+        MessageReactionDto reaction = messageReactionService.addReaction(messageId, userId, request.getEmoji());
+
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/reactions", reaction);
+    }
+
+    @MessageMapping("/chat.reaction.remove/{roomId}")
+    public void removeReaction(
+            @DestinationVariable Long roomId,
+            @Payload AddReactionRequest request,
+            Principal principal) {
+
+        log.info("User {} removing reaction {} in room {}", principal.getName(), request.getEmoji(), roomId);
+
+        Long userId = Long.parseLong(principal.getName());
+        Long messageId = request.getMessageId();
+
+        messageReactionService.removeReaction(messageId, userId, request.getEmoji());
+
+        MessageReactionDto removedReaction = MessageReactionDto.builder()
+                .messageId(messageId)
+                .userId(userId)
+                .emoji(request.getEmoji())
+                .build();
+
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/reactions", removedReaction);
     }
 }

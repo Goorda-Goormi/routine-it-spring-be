@@ -99,12 +99,21 @@ jobs:
           MONTHLY_SCHEDULER_ENABLED=${{ secrets.MONTHLY_SCHEDULER_ENABLED }}
           RETRY_SCHEDULER_ENABLED=${{ secrets.RETRY_SCHEDULER_ENABLED }}
           
+          # AWS
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          
           # Docker
           DEPLOY_TAG=${{ steps.tag.outputs.deploy_tag }}
           
           # MySQL Root Password (for docker-compose)
           MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_DATABASE=${{ secrets.DB_NAME }}
+          
+          #Gemini
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_URL=${{ secrets.GEMINI_API_URL }}
           EOF
 
       - name: Copy files to EC2

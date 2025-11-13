@@ -1,0 +1,208 @@
+name: Deploy to AWS EC2 Development
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Docker Image"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy_tag:
+        description: 'Docker image tag to deploy'
+        required: false
+        default: 'latest'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set deployment tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.deploy_tag }}"
+          else
+            TAG="latest"
+          fi
+          echo "deploy_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "🏷️ Deploying tag: $TAG to development server"
+
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+      - name: Add EC2 to known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.EC2_DEV_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        env:
+          EC2_DEV_HOST: ${{ secrets.EC2_DEV_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          echo "🔐 Testing SSH connection to development server..."
+          ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_DEV_HOST "echo 'SSH connection successful!'" || {
+            echo "❌ SSH connection failed"
+            echo "Please check:"
+            echo "1. EC2_SSH_PRIVATE_KEY contains the full PEM file content"
+            echo "2. EC2_USER is 'ec2-user'"
+            echo "3. EC2_DEV_HOST is '15.164.98.221'"
+            exit 1
+          }
+
+      - name: Create .env file from secrets
+        run: |
+          cat > .env.development << EOF
+          # Application
+          APP_PORT=8080
+          SPRING_PROFILES_ACTIVE=docker
+          
+          # Database
+          DB_HOST=routine-db
+          DB_PORT=3306
+          DB_NAME=${{ secrets.DB_NAME }}
+          DB_USERNAME=${{ secrets.DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          JPA_HIBERNATE_DDL_AUTO=${{ secrets.JPA_HIBERNATE_DDL_AUTO }}
+          
+          # Redis
+          REDIS_HOST=routine-redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          
+          # JWT
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          
+          # OAuth2 Kakao
+          KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}
+          OAUTH_REDIRECT_URI=${{ secrets.OAUTH_REDIRECT_URI_DEV }}
+          OAUTH_CALLBACK_URI=${{ secrets.OAUTH_CALLBACK_URI_DEV }}
+          
+          # CORS
+          CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
+          
+          # Logging
+          LOG_LEVEL_SQL=${{ secrets.LOG_LEVEL_SQL }}
+          LOG_LEVEL_SQL_BIND=${{ secrets.LOG_LEVEL_SQL_BIND }}
+          LOG_LEVEL_APP=${{ secrets.LOG_LEVEL_APP }}
+          
+          # Scheduler
+          SCHEDULER_POOL_SIZE=${{ secrets.SCHEDULER_POOL_SIZE }}
+          MONTHLY_SCHEDULER_ENABLED=${{ secrets.MONTHLY_SCHEDULER_ENABLED }}
+          RETRY_SCHEDULER_ENABLED=${{ secrets.RETRY_SCHEDULER_ENABLED }}
+          
+          # AWS
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          
+          # Docker
+          DEPLOY_TAG=${{ steps.tag.outputs.deploy_tag }}
+          
+          # MySQL Root Password (for docker-compose)
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_DATABASE=${{ secrets.DB_NAME }}
+
+          #Gemini
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_URL=${{ secrets.GEMINI_API_URL }}
+          EOF
+
+      - name: Copy files to EC2
+        env:
+          EC2_DEV_HOST: ${{ secrets.EC2_DEV_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          echo "📦 Copying deployment files to development EC2..."
+          
+          # Create directory if not exists
+          ssh $EC2_USER@$EC2_DEV_HOST "mkdir -p /home/$EC2_USER/routine-it-backend"
+          
+          # Copy docker-compose.yml
+          scp docker-compose.yml $EC2_USER@$EC2_DEV_HOST:/home/$EC2_USER/routine-it-backend/
+          
+          # Copy .env file
+          scp .env.development $EC2_USER@$EC2_DEV_HOST:/home/$EC2_USER/routine-it-backend/.env
+          
+          echo "✅ Files copied successfully"
+
+      - name: Deploy to EC2
+        env:
+          EC2_DEV_HOST: ${{ secrets.EC2_DEV_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          DEPLOY_TAG: ${{ steps.tag.outputs.deploy_tag }}
+        run: |
+          echo "🚀 Starting deployment to development EC2..."
+          
+          ssh $EC2_USER@$EC2_DEV_HOST << 'ENDSSH'
+            set -e
+          
+            echo "📂 Navigating to application directory..."
+            cd /home/${{ secrets.EC2_USER }}/routine-it-backend
+          
+            # Backup current .env if exists
+            if [ -f .env ]; then
+              cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+              echo "📋 Backed up existing .env file"
+            fi
+          
+            echo "📥 Pulling latest Docker images..."
+            export DEPLOY_TAG=${{ steps.tag.outputs.deploy_tag }}
+            docker-compose pull
+          
+            echo "🔄 Restarting application..."
+            docker-compose down --remove-orphans
+            docker-compose up -d
+          
+            echo "⏳ Waiting for application to be ready..."
+            for i in {1..30}; do
+              if curl -f http://localhost:8080/api/health/ping > /dev/null 2>&1; then
+                echo "✅ Development application is healthy!"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "❌ Application failed to start within 5 minutes"
+                docker-compose logs --tail=50
+                exit 1
+              fi
+              echo "⏳ Waiting... ($i/30)"
+              sleep 10
+            done
+          
+            echo "🧹 Cleaning up old Docker images..."
+            docker image prune -f
+          
+            echo "📊 Development deployment status:"
+            docker-compose ps
+          
+            echo "🔍 Environment variables loaded:"
+            docker-compose exec -T app env | grep -E "^(SPRING_|DB_|REDIS_|JWT_|KAKAO_)" | sort
+          ENDSSH
+
+      - name: Health Check
+        run: |
+          echo "🔍 Running post-deployment health checks on development server..."
+          
+          curl -f http://${{ secrets.EC2_DEV_HOST }}:8080/api/health/ping || {
+            echo "❌ Health check failed"
+            exit 1
+          }
+          
+          echo "✅ All health checks passed!"
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "🎉 Development deployment completed successfully!"
+          echo "🌐 Development server is available at: http://${{ secrets.EC2_DEV_HOST }}:8080"
+          echo "📚 API Documentation: http://${{ secrets.EC2_DEV_HOST }}:8080/swagger-ui/index.html"
+          echo "🔧 Environment: Development"
+          echo "📍 IP Address: ${{ secrets.EC2_DEV_HOST }}"

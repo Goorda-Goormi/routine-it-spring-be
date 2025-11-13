@@ -68,6 +68,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 일반적인 런타임 예외 처리
+     */
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ErrorResponse> handleRuntimeException(
+            RuntimeException ex) {
+        
+        log.error("Runtime error: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(ErrorResponse.of("내부 서버 오류가 발생했습니다"));
+    }
+
+    /**
      * 기타 모든 예외 처리
      */
 //    @ExceptionHandler(Exception.class)

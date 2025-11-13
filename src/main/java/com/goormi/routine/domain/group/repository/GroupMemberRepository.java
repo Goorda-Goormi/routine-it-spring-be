@@ -53,4 +53,6 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> 
     @Query("SELECT gm FROM GroupMember gm WHERE gm.group.id = :groupId AND gm.user.id = :userId AND gm.status = 'JOINED'")
     Optional<GroupMember> findByGroupIdAndUserIdAndIsActiveTrue(@Param("groupId") Long groupId, @Param("userId") Long userId);
 
+    @Query("SELECT gm FROM GroupMember gm WHERE gm.group.groupId = :groupId AND gm.status = 'JOINED'")
+    List<GroupMember> findAllByGroupId(@Param("groupId") Long groupId);
 }

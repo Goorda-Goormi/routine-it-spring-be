@@ -9,16 +9,16 @@ import com.goormi.routine.domain.ranking.dto.PersonalRankingResponse;
 
 public interface RankingService {
 
-	Page<PersonalRankingResponse> getPersonalRankings(String monthYear, Pageable pageable, Long currentUserId);
+	Page<PersonalRankingResponse> getPersonalRankings(Pageable pageable, Long currentUserId);
 
-	Page<GlobalGroupRankingResponse.GroupRankingItem> getGlobalGroupRankings(
-		String monthYear, String category, String groupType, Pageable pageable);
+	GlobalGroupRankingResponse getGlobalGroupRankings(
+		String category, String groupType, Pageable pageable);
 
-	GroupTop3RankingResponse getTop3RankingsByGroup(Long groupId, String monthYear);
+	GroupTop3RankingResponse getTop3RankingsByGroup(Long groupId);
 
 	void updateRankingScore(Long userId, Long groupId, int score);
 
-	void updateGroupScore(Long userId, Long groupId, int score);
+	void updateGroupScore(Long userId, Long groupId, int score, int consecutiveDays, String monthYear);
 
 	void resetMonthlyRankings();
 

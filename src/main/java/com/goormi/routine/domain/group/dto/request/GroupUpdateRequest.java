@@ -30,4 +30,6 @@ public class GroupUpdateRequest {
     private String category;
     private String imageUrl;
     private int maxMembers;
+
+    private Boolean isAlarm;
 }

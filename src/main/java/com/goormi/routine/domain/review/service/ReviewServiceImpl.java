@@ -41,6 +41,7 @@ public class ReviewServiceImpl implements ReviewService{
 	private final ReviewRedisRepository reviewRedisRepository;
 	private final UserActivityRepository userActivityRepository;
 	private final ObjectMapper objectMapper;
+	private final AiReviewService aiReviewService;
 
 	@Override
 	public void sendMonthlyReviewMessages(String monthYear) {
@@ -81,7 +82,14 @@ public class ReviewServiceImpl implements ReviewService{
 
 		MonthlyReviewResponse currentReview = calculateMonthlyReview(userId, monthYear);
 
-		String messageContent = generateReviewMessage(currentReview);
+		String messageContent;
+		try {
+			//gemini 호출
+			messageContent = aiReviewService.generateAiMessage(currentReview);
+		} catch (Exception e) {
+			messageContent = generateReviewMessage(currentReview);
+		}
+
 		currentReview.setMessageContent(messageContent);
 		currentReview.setMessageSent(true);
 
@@ -137,6 +145,29 @@ public class ReviewServiceImpl implements ReviewService{
 	}
 
 	private MonthlyReviewResponse calculateMonthlyReview(Long userId, String monthYear) {
+		LocalDate startDate = LocalDate.parse(monthYear + "-01");
+		LocalDate endDate = startDate.plusMonths(1).minusDays(1);
+
+		// List<UserActivity> monthlyActivities = userActivityRepository
+		// 	.findByUserIdAndActivityDateBetween(userId, startDate, endDate);
+
+		long personalRoutineCountLong = userActivityRepository
+			.countByUserIdAndActivityTypeAndActivityDateBetween(
+				userId, ActivityType.PERSONAL_ROUTINE_COMPLETE, startDate, endDate);
+		int personalRoutineCount = (int)Math.min(personalRoutineCountLong, Integer.MAX_VALUE);
+
+		long groupAuthCountLong = userActivityRepository
+			.countByUserIdAndActivityTypeAndActivityDateBetween(
+				userId, ActivityType.GROUP_AUTH_COMPLETE, startDate, endDate);
+		int groupAuthCount = (int)Math.min(groupAuthCountLong, Integer.MAX_VALUE);
+
+		long dailyChecklistCountLong = userActivityRepository
+			.countByUserIdAndActivityTypeAndActivityDateBetween(
+				userId, ActivityType.DAILY_CHECKLIST, startDate, endDate);
+		int dailyChecklistCount = (int)Math.min(dailyChecklistCountLong, Integer.MAX_VALUE);
+
+		int totalAuthCount = personalRoutineCount + groupAuthCount + dailyChecklistCount;
+
 		try {
 			User user = userRepository.findById(userId)
 				.orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + userId));
@@ -184,6 +215,10 @@ public class ReviewServiceImpl implements ReviewService{
 				.totalScore((int)currentScore)
 				.participatingGroups(currentGroups)
 				.personalRoutineAchievementRate(personalRoutineAchievementRate)
+				.totalAuthCount(Math.max(totalAuthCount, 0))
+				.personalRoutineCount(Math.max(personalRoutineCount, 0))
+				.groupAuthCount(Math.max(groupAuthCount, 0))
+				.dailyChecklistCount(Math.max(dailyChecklistCount, 0))
 				.achievements(achievements)
 				.scoreDifference(scoreDifference)
 				.groupDifference(groupDifference)
@@ -322,6 +357,7 @@ public class ReviewServiceImpl implements ReviewService{
 		}
 	}
 
+	//ai 호출 실패 시
 	private String generateReviewMessage(MonthlyReviewResponse review) {
 		StringBuilder message = new StringBuilder();
 
@@ -349,23 +385,21 @@ public class ReviewServiceImpl implements ReviewService{
 		}
 		message.append("\n");
 
-		message.append("• 총 인증: ").append(review.getTotalAuthCount()).append("회\n");
-		message.append("• 연속 출석: ").append(review.getConsecutiveDays()).append("일\n\n");
+		message.append("• 총 인증: ").append(review.getTotalAuthCount() != null ? review.getTotalAuthCount() : 0).append("회\n");
 
 		message.append("📊 활동별 상세 현황\n");
-		if (review.getPersonalRoutineCount() != null && review.getPersonalRoutineCount() > 0) {
-			message.append("🎯 개인 루틴: ").append(review.getPersonalRoutineCount()).append("회");
-			if (review.getPersonalRoutineAchievementRate() != null) {
-				message.append(" (달성률 ").append(review.getPersonalRoutineAchievementRate()).append("%)");
-			}
-			message.append("\n");
+		int personalCount = review.getPersonalRoutineCount() != null ? review.getPersonalRoutineCount() : 0;
+		message.append("🎯 개인 루틴: ").append(personalCount).append("회");
+		if (personalCount > 0 && review.getPersonalRoutineAchievementRate() != null) {
+			message.append(" (달성률 ").append(review.getPersonalRoutineAchievementRate()).append("%)");
 		}
-		if (review.getGroupAuthCount() != null && review.getGroupAuthCount() > 0) {
-			message.append("👥 그룹 인증: ").append(review.getGroupAuthCount()).append("회\n");
-		}
-		if (review.getDailyChecklistCount() != null && review.getDailyChecklistCount() > 0) {
-			message.append("✅ 출석 체크: ").append(review.getDailyChecklistCount()).append("회\n");
-		}
+		message.append("\n");
+
+		int groupCount = review.getGroupAuthCount() != null ? review.getGroupAuthCount() : 0;
+		message.append("👥 그룹 인증: ").append(groupCount).append("회\n");
+
+		int checklistCount = review.getDailyChecklistCount() != null ? review.getDailyChecklistCount() : 0;
+		message.append("✅ 출석 체크: ").append(checklistCount).append("회\n");
 		message.append("• 참여 그룹: ").append(review.getParticipatingGroups()).append("개\n\n");
 
 		if (review.getPersonalRoutineAchievementRate() != null) {
