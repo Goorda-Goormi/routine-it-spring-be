@@ -199,7 +199,7 @@ public class KakaoCalendarClient {
      * @param eventId 수정할 일정 ID
      * @param request 일정 수정 요청
      */
-    public void updateEvent(String accessToken, String eventId, UpdateEventRequest request) {
+    public UpdateEventResponse updateEvent(String accessToken, String eventId, UpdateEventRequest request) {
         log.info("=== 카카오 일정 수정 API 호출 시작 ===");
         log.debug("요청 파라미터: eventId={}, title={}", eventId, 
                 request.event() != null ? request.event().title() : "null");
@@ -270,7 +270,7 @@ public class KakaoCalendarClient {
             formData.forEach((key, values) -> 
                 log.debug("- {}: {}", key, values));
             
-            webClient.post()
+            return webClient.post()
                     .uri("/update/event/host")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE + ";charset=UTF-8")
@@ -281,8 +281,14 @@ public class KakaoCalendarClient {
                                     .doOnNext(body -> log.error("카카오 API 오류 응답: status={}, body={}", 
                                             response.statusCode(), body))
                                     .then(response.createException()))
-                    .bodyToMono(Void.class)
-                    .doOnSuccess(response -> log.info("일정 수정 성공: eventId={}", eventId))
+                    .bodyToMono(UpdateEventResponse.class)
+                    .doOnSuccess(response -> {
+                        if (response != null) {
+                            log.info("일정 수정 성공: eventId={}", response.eventId());
+                        } else {
+                            log.info("일정 수정 성공: eventId={} (응답 본문 없음)", eventId);
+                        }
+                    })
                     .doOnError(error -> log.error("일정 수정 실패: eventId={}", eventId, error))
                     .block();
                     
