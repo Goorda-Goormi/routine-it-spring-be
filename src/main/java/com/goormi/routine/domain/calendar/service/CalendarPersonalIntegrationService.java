@@ -60,6 +60,7 @@ public class CalendarPersonalIntegrationService {
     /**
      * 개인 루틴 수정 시 캘린더 일정 업데이트
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handlePersonalRoutineUpdate(PersonalRoutineUpdatedEvent event) {
         PersonalRoutine personalRoutine = event.getPersonalRoutine();
@@ -72,9 +73,11 @@ public class CalendarPersonalIntegrationService {
         try {
             // 이벤트 ID가 존재하는 경우에만 일정 수정
             if (eventId != null && !eventId.trim().isEmpty()) {
-                calendarPersonalService.updatePersonalSchedule(userId, personalRoutine, eventId);
-                log.info("개인 루틴 캘린더 일정 수정 완료: userId={}, routineId={}, eventId={}",
-                        userId, personalRoutine.getRoutineId(), eventId);
+                String updatedEventId = calendarPersonalService.updatePersonalSchedule(userId, personalRoutine, eventId);
+                personalRoutine.updateCalendarEventId(updatedEventId);
+                personalRoutineRepository.save(personalRoutine);
+                log.info("개인 루틴 캘린더 일정 수정 완료: userId={}, routineId={}, eventId={}, updatedEventId={}",
+                        userId, personalRoutine.getRoutineId(), eventId, updatedEventId);
             } else {
                 log.warn("eventId is null :eventId={}", eventId);
             }
