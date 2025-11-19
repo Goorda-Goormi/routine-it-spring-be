@@ -2,11 +2,13 @@ package com.goormi.routine.domain.ranking.service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -80,7 +82,6 @@ public class RankingServiceImpl implements RankingService {
 				.totalScore(totalScore)
 				.totalParticipants((int) rankingPage.getTotalElements())
 				.monthYear(currentMonthYear)
-				.consecutiveDays(calculateConsecutiveDays(userId))
 				.groupDetails(getGroupDetailsByUserId(userId, currentMonthYear))
 				.isCurrentUser(isCurrentUser) // 현재 사용자 여부 추가
 				.updatedAt(LocalDateTime.now())
@@ -194,12 +195,12 @@ public class RankingServiceImpl implements RankingService {
 					Ranking ranking = top3Rankings.get(index);
 					User user = ranking.getUser();
 
-					int authCount = calculateGroupAuthCount(ranking.getUserId(), groupId, currentMonthYear);
-					int consecutiveDays = calculateConsecutiveDays(ranking.getUserId());
+					int authDays = calculateGroupAuthDays(ranking.getUserId(), groupId, currentMonthYear);
+					int consecutiveDays = calculateGroupConsecutiveDays(ranking.getUserId(), groupId);
 
 					int finalScore = ranking.getScore();
 
-					int baseScore = authCount * 10;
+					int baseScore = 10;
 					double consecutiveBonus = calculateConsecutiveBonus(consecutiveDays);
 
 					GroupTop3RankingResponse.ScoreBreakdown scoreBreakdown =
@@ -217,7 +218,7 @@ public class RankingServiceImpl implements RankingService {
 						.nickname(user != null ? user.getNickname() : "탈퇴한 사용자")
 						.profileImageUrl(user != null ? user.getProfileImageUrl() : null)
 						.score(finalScore)
-						.authCount(authCount)
+						.authCount(authDays)
 						.consecutiveDays(consecutiveDays)
 						.consecutiveBonus(consecutiveBonus)
 						.scoreBreakdown(scoreBreakdown)
@@ -248,27 +249,37 @@ public class RankingServiceImpl implements RankingService {
 		if (groupId == null) {
 			throw new IllegalArgumentException("그룹 ID는 필수입니다.");
 		}
-		if (authCount < 0) {
-			throw new IllegalArgumentException("인증 횟수는 0 이상이어야 합니다.");
-		}
 
-		int baseScore = authCount * 10;
-		int consecutiveDays = calculateConsecutiveDays(userId);
+		int baseScore = 10;
+		int consecutiveDays = calculateGroupConsecutiveDays(userId, groupId);
 		double consecutiveBonus = calculateConsecutiveBonus(consecutiveDays);
 		int finalScore = baseScore + (int)consecutiveBonus;
 
-		updateGroupScore(userId, groupId, finalScore, currentMonthYear);
+		updateGroupScore(userId, groupId, finalScore, consecutiveDays, currentMonthYear);
 	}
 
 	@Override
 	@Transactional
-	public void updateGroupScore(Long userId, Long groupId, int finalScore, String monthYear) {
+	public void updateGroupScore(Long userId, Long groupId, int finalScore, int consecutiveDays, String monthYear) {
 		String currentMonthYear = getCurrentMonthYear();
+		LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 		Optional<Ranking> existingRanking = rankingRepository.findByUserIdAndGroupIdAndMonthYear(userId, groupId, currentMonthYear);
 
 		if (existingRanking.isPresent()) {
 			Ranking ranking = existingRanking.get();
+
+			LocalDateTime lastUpdate = ranking.getUpdatedAt();
+			LocalDate lastUpdateDate = lastUpdate.toLocalDate();
+
+			if (lastUpdateDate.equals(today)) {
+				log.info("그룹 점수 업데이트 실패: 사용자 ID = {}, 그룹 ID = {}, 오늘 이미 점수를 받았습니다.",
+					userId, groupId);
+				return;
+			}
+
 			ranking.setScore(ranking.getScore() + finalScore);
+			ranking.setConsecutiveDays(consecutiveDays);
+			ranking.setLastAuthDate(today);
 			ranking.setUpdatedAt(LocalDateTime.now());
 			rankingRepository.save(ranking);
 			log.info("그룹 점수 업데이트: 사용자 ID = {}, 그룹 ID = {}, 기본 점수 = {}, 총 점수 = {}",
@@ -281,6 +292,8 @@ public class RankingServiceImpl implements RankingService {
 				.userId(userId)
 				.groupId(groupId)
 				.score(finalScore)
+				.consecutiveDays(consecutiveDays)
+				.lastAuthDate(today)
 				.monthYear(currentMonthYear)
 				.updatedAt(LocalDateTime.now())
 				.build();
@@ -315,8 +328,8 @@ public class RankingServiceImpl implements RankingService {
 		for (Group group : allGroups) {
 			List<GroupMember> members = groupMemberRepository.findAllByGroupId(group.getGroupId());
 			for (GroupMember member : members) {
-				int authCount = calculateGroupAuthCount(member.getUser().getId(), group.getGroupId(), monthYear);
-				updateRankingScore(member.getUser().getId(), group.getGroupId(), authCount);
+				int authDays = calculateGroupAuthDays(member.getUser().getId(), group.getGroupId(), monthYear);
+				updateRankingScore(member.getUser().getId(), group.getGroupId(), authDays);
 			}
 		}
 
@@ -383,30 +396,37 @@ public class RankingServiceImpl implements RankingService {
 		return new GroupScoreData(groupId, group, finalScore, membersTotalScore, participationBonus);
 	}
 
-	private int calculateConsecutiveDays(Long userId) {
+
+	private int calculateGroupConsecutiveDays(Long userId, Long groupId) {
 		try {
-			List<UserActivity> activities = userActivityRepository
-				.findByUserIdAndActivityTypeOrderByCreatedAtDesc(userId, ActivityType.GROUP_AUTH_COMPLETE);
+			LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
-			if (activities.isEmpty()) {
-				return 0;
+			Optional<Ranking> existingRanking = rankingRepository
+				.findByUserIdAndGroupIdAndMonthYear(
+					userId,
+					groupId,
+					LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"))
+				);
+
+			if (existingRanking.isEmpty()) {
+				return 1;
 			}
 
-			int consecutiveDays = 0;
-			LocalDate currentDate = LocalDate.now();
+			Ranking ranking = existingRanking.get();
+			LocalDate lastAuthDate = ranking.getLastAuthDate();
 
-			for (UserActivity activity : activities) {
-				LocalDate activityDate = activity.getCreatedAt().toLocalDate();
-				if (activityDate.equals(currentDate.minusDays(consecutiveDays))) {
-					consecutiveDays++;
-				} else {
-					break;
-				}
+			if (lastAuthDate == null) {
+				return 1;
 			}
 
-			return consecutiveDays;
+			if (lastAuthDate.equals(today.minusDays(1))) {
+				return ranking.getConsecutiveDays() + 1;
+			} else if (lastAuthDate.equals(today)) {
+				return ranking.getConsecutiveDays();
+			} else {
+				return 1;
+			}
 		} catch (Exception e) {
-			log.warn("연속 일수 계산 실패: 사용자 ID = {}", userId, e);
 			return 0;
 		}
 	}
@@ -419,12 +439,12 @@ public class RankingServiceImpl implements RankingService {
 			return activeGroups.stream()
 				.map(groupMember -> {
 					Group group = groupMember.getGroup();
-					int authCount = calculateGroupAuthCount(userId, group.getGroupId(), monthYear);
+					int authDays = calculateGroupAuthDays(userId, group.getGroupId(), monthYear);
 
 					return PersonalRankingResponse.GroupRankingDetail.builder()
 						.groupId(group.getGroupId())
 						.groupName(group.getGroupName())
-						.authCount(authCount)
+						.authCount(authDays)
 						.groupType(group.getGroupType() != null ? group.getGroupType().name() : "")
 						.build();
 				})
@@ -435,20 +455,26 @@ public class RankingServiceImpl implements RankingService {
 		}
 	}
 
-	private int calculateGroupAuthCount(Long userId, Long groupId, String monthYear) {
+	private int calculateGroupAuthDays(Long userId, Long groupId, String monthYear) {
 		try {
 			LocalDate startDate = LocalDate.parse(monthYear + "-01");
 			LocalDate endDate = startDate.plusMonths(1).minusDays(1);
 
-			return (int) userActivityRepository
-				.countByUserIdAndActivityTypeAndCreatedAtBetween(
-					userId,
-					ActivityType.GROUP_AUTH_COMPLETE,
-					startDate.atStartOfDay(),
-					endDate.atTime(23, 59, 59)
-				);
+			List<UserActivity> activities = userActivityRepository
+				.findByUserIdAndActivityTypeAndCreatedAtBetween(
+				userId,
+				ActivityType.GROUP_AUTH_COMPLETE,
+				startDate.atStartOfDay(),
+				endDate.atTime(23, 59, 59)
+			);
+
+			Set<LocalDate> uniqueDates = activities.stream()
+				.map(activity -> activity.getCreatedAt().toLocalDate())
+				.collect(Collectors.toSet());
+
+			return uniqueDates.size();
 		} catch (Exception e) {
-			log.warn("그룹 인증 횟수 계산 실패: 사용자 ID = {}, 그룹 ID = {}", userId, groupId, e);
+			log.warn("그룹 일일 인증 일수 계산 실패: 사용자 ID = {}, 그룹 ID = {}", userId, groupId, e);
 			return 0;
 		}
 	}
@@ -468,12 +494,15 @@ public class RankingServiceImpl implements RankingService {
 	}
 
 	private double calculateConsecutiveBonus(int consecutiveDays) {
-		if (consecutiveDays <= 2 && consecutiveDays < 30) {
-			return consecutiveDays * 0.5;
-		} else if (consecutiveDays >= 30) {
-			return 15;
+		if (consecutiveDays < 1) {
+			return 0;
 		}
-		return 0;
+
+		if (consecutiveDays < 30) {
+			return consecutiveDays * 0.5;
+		}
+
+		return 15;
 	}
 
 	private int calculateGroupMembersTotalScore(Long groupId) {

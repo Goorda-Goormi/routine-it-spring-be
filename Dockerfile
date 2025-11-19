@@ -19,7 +19,7 @@ COPY src src
 RUN ./gradlew build -x test --no-daemon
 
 # Runtime stage
-FROM openjdk:17-jdk-slim
+FROM openjdk:26-ea-17-jdk-slim
 WORKDIR /app
 
 # Copy jar file from build stage

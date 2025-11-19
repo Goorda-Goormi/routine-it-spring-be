@@ -6,7 +6,7 @@ import static com.goormi.routine.domain.calendar.dto.KakaoCalendarDto.*;
 public interface CalendarPersonalService {
     String createPersonalSchedule(Long userId, PersonalRoutine personalRoutine);
 
-    void updatePersonalSchedule(Long userId, PersonalRoutine personalRoutine, String eventId);
+    String updatePersonalSchedule(Long userId, PersonalRoutine personalRoutine, String eventId);
 
     void deletePersonalSchedule(String eventId, Long userId);
 
