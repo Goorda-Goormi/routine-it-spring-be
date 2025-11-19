@@ -6,8 +6,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class ReviewServiceImpl implements ReviewService{
+public class ReviewServiceImpl implements ReviewService {
 
 	private final UserRepository userRepository;
 	private final RankingService rankingService;
@@ -43,36 +49,66 @@ public class ReviewServiceImpl implements ReviewService{
 	private final ObjectMapper objectMapper;
 	private final AiReviewService aiReviewService;
 
+	//동시성 제어
+	@Qualifier("aiReviewExecutor")
+	private final ExecutorService executorService;
+
+	private static final int BATCH_SIZE = 50;
+
 	@Override
 	public void sendMonthlyReviewMessages(String monthYear) {
 		String targetMonth = monthYear != null ? monthYear :
 			LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyy-MM"));
 
-		List<User> activeUsers = userRepository.findAll();
+		List<User> allUsers = userRepository.findAll();
+		List<CompletableFuture<Boolean>> futures = new ArrayList<>();
 
 		int successCount = 0;
 		int failCount = 0;
 
-		for (User user : activeUsers) {
-			try {
-				sendUserReviewMessage(user.getId(), targetMonth);
-				successCount++;
-			} catch (Exception e) {
-				failCount++;
-				log.error("사용자 회고 메시지 전송 실패: 사용자 ID = {}", user.getId(), e);
-				// 실패한 사용자 정보를 Redis에 저장 (재전송용)
-				reviewRedisRepository.saveFailedMessage(user.getId(), targetMonth, e.getMessage());
-			}
-		}
+		try {
+			int BATCH_SIZE = 50;
+			for (int i = 0; i < allUsers.size(); i += BATCH_SIZE) {
+				int endIdx = Math.min(i + BATCH_SIZE, allUsers.size());
+				List<User> batch = allUsers.subList(i, endIdx);
 
-		log.info("월간 회고 메시지 전송 완료: 월 = {}, 성공 = {}, 실패 = {}",
-			targetMonth, successCount, failCount);
+				// 각 사용자마다 비동기 작업 생성
+				for (User user : batch) {
+					CompletableFuture<Boolean> future =
+						sendUserReviewMessageAsync(user.getId(), targetMonth);
+					futures.add(future);
+				}
+			}
+
+			// 모든 작업 완료 대기 (최대 30분)
+			CompletableFuture<Void> allFutures =
+				CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+
+			allFutures.get(30, TimeUnit.MINUTES);
+
+			// 결과 수집
+			for (CompletableFuture<Boolean> future : futures) {
+				if (future.join()) {
+					successCount++;
+				} else {
+					failCount++;
+				}
+			}
+
+			log.info("전송 완료: 성공={}, 실패={}", successCount, failCount);
+
+		} catch (TimeoutException e) {
+			log.error("타임아웃 발생", e);
+			throw new RuntimeException("처리 시간 초과", e);
+		} catch (Exception e) {
+			log.error("오류 발생", e);
+			throw new RuntimeException();
+		}
 
 		if (failCount > 0) {
 			throw new RuntimeException(String.format("일부 메시지 전송 실패: 성공 %d건, 실패 %d건", successCount, failCount));
 		}
 	}
-
 
 	@Override
 	public void sendUserReviewMessage(Long userId, String monthYear) {
@@ -85,7 +121,10 @@ public class ReviewServiceImpl implements ReviewService{
 		String messageContent;
 		try {
 			//gemini 호출
-			messageContent = aiReviewService.generateAiMessage(currentReview);
+			messageContent = generateAiMessageWithTimeout(currentReview, 10);
+		} catch (TimeoutException e) {
+			log.warn("API 타임아웃, 폴백 메시지 사용");
+			messageContent = generateReviewMessage(currentReview);
 		} catch (Exception e) {
 			messageContent = generateReviewMessage(currentReview);
 		}
@@ -104,7 +143,6 @@ public class ReviewServiceImpl implements ReviewService{
 		log.info("사용자 회고 메시지 전송 완료: 사용자 ID = {}, 월 = {}", userId, monthYear);
 
 	}
-
 
 	@Override
 	public void retryFailedMessages(String monthYear) {
@@ -272,7 +310,8 @@ public class ReviewServiceImpl implements ReviewService{
 
 			Map<Long, List<UserActivity>> activitiesByRoutine = personalRoutineActivities.stream()
 				.filter(activity -> activity.getPersonalRoutine() != null)
-				.collect(Collectors.groupingBy(activity -> activity.getPersonalRoutine().getRoutineId().longValue()));
+				.collect(
+					Collectors.groupingBy(activity -> activity.getPersonalRoutine().getRoutineId().longValue()));
 
 			if (activitiesByRoutine.isEmpty()) {
 				return 0;
@@ -287,13 +326,13 @@ public class ReviewServiceImpl implements ReviewService{
 				int targetCount = calculateMonthlyTargetCount(routine, startDate, endDate);
 
 				if (targetCount > 0) {
-					double achievementRate = Math.min(100.0, (double) activities.size() / targetCount * 100);
+					double achievementRate = Math.min(100.0, (double)activities.size() / targetCount * 100);
 					achievementRates.add(achievementRate);
 				}
 			}
 
 			return achievementRates.isEmpty() ? 0 :
-				(int) achievementRates.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+				(int)achievementRates.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
 
 		} catch (Exception e) {
 			log.warn("개인 루틴 성취률 계산 실패: 사용자 ID = {}", userId, e);
@@ -331,7 +370,8 @@ public class ReviewServiceImpl implements ReviewService{
 	private void saveReviewToRedis(MonthlyReviewResponse review) {
 		try {
 			String jsonData = objectMapper.writeValueAsString(review);
-			reviewRedisRepository.saveReviewData(review.getUserId().toString(), review.getMonthYear(), jsonData); // 변경된 부분
+			reviewRedisRepository.saveReviewData(review.getUserId().toString(), review.getMonthYear(),
+				jsonData); // 변경된 부분
 		} catch (JsonProcessingException e) {
 			log.error("회고 데이터 JSON 변환 실패: 사용자 ID = {}, 월 = {}",
 				review.getUserId(), review.getMonthYear(), e);
@@ -385,7 +425,9 @@ public class ReviewServiceImpl implements ReviewService{
 		}
 		message.append("\n");
 
-		message.append("• 총 인증: ").append(review.getTotalAuthCount() != null ? review.getTotalAuthCount() : 0).append("회\n");
+		message.append("• 총 인증: ")
+			.append(review.getTotalAuthCount() != null ? review.getTotalAuthCount() : 0)
+			.append("회\n");
 
 		message.append("📊 활동별 상세 현황\n");
 		int personalCount = review.getPersonalRoutineCount() != null ? review.getPersonalRoutineCount() : 0;
@@ -428,5 +470,38 @@ public class ReviewServiceImpl implements ReviewService{
 		message.append("루틴잇에서 확인하기 👆");
 
 		return message.toString();
+	}
+
+	private CompletableFuture<Boolean> sendUserReviewMessageAsync(Long userId, String monthYear) {
+		return CompletableFuture.supplyAsync(() -> {
+			try {
+				sendUserReviewMessage(userId, monthYear);
+				return true;
+			} catch (Exception e) {
+				log.error("전송 실패: userId={}", userId, e);
+				reviewRedisRepository.saveFailedMessage(userId, monthYear, e.getMessage());
+				return false;
+			}
+		}, executorService);
+	}
+
+	private String generateAiMessageWithTimeout(
+		MonthlyReviewResponse review, long timeoutSeconds)
+		throws TimeoutException, Exception {
+
+		Future<String> future = executorService.submit(() -> {
+			try {
+				return aiReviewService.generateAiMessage(review);
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		});
+
+		try {
+			return future.get(timeoutSeconds, TimeUnit.SECONDS);
+		} catch (TimeoutException e) {
+			future.cancel(true);
+			throw e;
+		}
 	}
 }

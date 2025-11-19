@@ -9,11 +9,14 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api")
@@ -23,6 +26,20 @@ import java.util.List;
 public class ReviewController {
 
 	private final ReviewService reviewService;
+
+	@PostMapping("/reviews/monthly/send")
+	@Async("aiReviewExecutor")
+	public CompletableFuture<String> sendMonthlyReviewMessagesAsync(
+		@RequestParam(required = false) String monthYear) {
+
+		try {
+			reviewService.sendMonthlyReviewMessages(monthYear);
+			return CompletableFuture.completedFuture("회고 메시지 전송이 시작되었습니다.");
+		} catch (Exception e) {
+			log.error("회고 메시지 전송 실패", e);
+			return CompletableFuture.failedFuture(e);
+		}
+	}
 
 	@Operation(
 		summary = "월간 회고 메시지 전송",
