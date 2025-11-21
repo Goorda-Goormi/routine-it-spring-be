@@ -17,6 +17,8 @@ import com.goormi.routine.domain.user.entity.User;
 import com.goormi.routine.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -79,17 +81,38 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     @Transactional(readOnly = true)
     public Page<ChatRoomDto> getRooms(Long groupId, Pageable pageable) {
         Page<ChatRoom> rooms;
-        
+
         if (groupId != null) {
             rooms = chatRoomRepository.findByGroupIdAndIsActiveTrue(groupId, pageable);
         } else {
             rooms = chatRoomRepository.findByIsActiveTrue(pageable);
         }
-        
+
+        // Batch로 데이터 조회하여 N+1 문제 해결
+        List<Long> roomIds = rooms.getContent().stream()
+                .map(ChatRoom::getId)
+                .collect(Collectors.toList());
+
+        List<Long> creatorIds = rooms.getContent().stream()
+                .map(ChatRoom::getCreatedBy)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<Long, Long> participantCountMap = chatMemberRepository.countActiveMembersByRoomIds(roomIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        arr -> (Long) arr[0],
+                        arr -> (Long) arr[1]
+                ));
+
+        // 생성자 정보를 한 번에 조회
+        Map<Long, String> creatorNicknameMap = userRepository.findAllById(creatorIds)
+                .stream()
+                .collect(Collectors.toMap(User::getId, User::getNickname));
+
         return rooms.map(room -> {
-            int participantCount = chatMemberRepository.countActiveMembers(room.getId());
-            User creator = userRepository.findById(room.getCreatedBy()).orElse(null);
-            String creatorNickname = creator != null ? creator.getNickname() : "Unknown";
+            int participantCount = participantCountMap.getOrDefault(room.getId(), 0L).intValue();
+            String creatorNickname = creatorNicknameMap.getOrDefault(room.getCreatedBy(), "Unknown");
             return convertToDto(room, creatorNickname, participantCount);
         });
     }
@@ -99,56 +122,81 @@ public class ChatRoomServiceImpl implements ChatRoomService {
     public List<ChatRoomDto> getMyRooms(String username) {
         User user = userRepository.findByEmail(username)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
-        
+
         List<ChatRoom> rooms = chatRoomRepository.findActiveRoomsByUserId(user.getId());
-        
+
+        // Batch로 데이터 조회하여 N+1 문제 해결
+        List<Long> roomIds = rooms.stream()
+                .map(ChatRoom::getId)
+                .collect(Collectors.toList());
+
+        List<Long> creatorIds = rooms.stream()
+                .map(ChatRoom::getCreatedBy)
+                .distinct()
+                .collect(Collectors.toList());
+
+        // 참가자 수를 한 번에 조회
+        Map<Long, Long> participantCountMap = chatMemberRepository.countActiveMembersByRoomIds(roomIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        arr -> (Long) arr[0],
+                        arr -> (Long) arr[1]
+                ));
+
+        // 생성자 정보를 한 번에 조회
+        Map<Long, String> creatorNicknameMap = userRepository.findAllById(creatorIds)
+                .stream()
+                .collect(Collectors.toMap(User::getId, User::getNickname));
+
         return rooms.stream()
                 .map(room -> {
-                    int participantCount = chatMemberRepository.countActiveMembers(room.getId());
-                    User creator = userRepository.findById(room.getCreatedBy()).orElse(null);
-                    String creatorNickname = creator != null ? creator.getNickname() : "Unknown";
+                    int participantCount = participantCountMap.getOrDefault(room.getId(), 0L).intValue();
+                    String creatorNickname = creatorNicknameMap.getOrDefault(room.getCreatedBy(), "Unknown");
                     return convertToDto(room, creatorNickname, participantCount);
                 })
                 .collect(Collectors.toList());
     }
     
     @Override
+    @Cacheable(value = "chatRoom", key = "#roomId")
     @Transactional(readOnly = true)
     public ChatRoomDto getRoom(Long roomId) {
         ChatRoom room = chatRoomRepository.findByIdAndIsActiveTrue(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("채팅방을 찾을 수 없습니다"));
-        
+
         int participantCount = chatMemberRepository.countActiveMembers(roomId);
         User creator = userRepository.findById(room.getCreatedBy()).orElse(null);
         String creatorNickname = creator != null ? creator.getNickname() : "Unknown";
-        
+
         return convertToDto(room, creatorNickname, participantCount);
     }
     
     @Override
+    @Cacheable(value = "chatRoomByGroup", key = "#groupId")
     @Transactional(readOnly = true)
     public ChatRoomDto getRoomByGroupId(Long groupId) {
         ChatRoom room = chatRoomRepository.findFirstByGroupIdAndIsActiveTrue(groupId)
                 .orElseThrow(() -> new IllegalArgumentException("해당 그룹의 채팅방을 찾을 수 없습니다"));
-        
+
         int participantCount = chatMemberRepository.countActiveMembers(room.getId());
         User creator = userRepository.findById(room.getCreatedBy()).orElse(null);
         String creatorNickname = creator != null ? creator.getNickname() : "Unknown";
-        
+
         return convertToDto(room, creatorNickname, participantCount);
     }
     
     @Override
+    @CacheEvict(value = "chatRoom", key = "#roomId")
     public void joinRoom(Long roomId, String username) {
         User user = userRepository.findByEmail(username)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
-        
+
         ChatRoom room = chatRoomRepository.findByIdAndIsActiveTrue(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("채팅방을 찾을 수 없습니다"));
-        
+
         GroupMember groupMember = groupMemberRepository.findByGroupIdAndUserIdAndIsActiveTrue(room.getGroupId(), user.getId())
                 .orElseThrow(() -> new IllegalArgumentException("그룹에 속해있지 않은 사용자입니다"));
-        
+
         chatMemberRepository.findByRoomIdAndUserId(roomId, user.getId()).ifPresentOrElse(
             member -> {
                 if (!member.getIsActive()) {
@@ -165,27 +213,28 @@ public class ChatRoomServiceImpl implements ChatRoomService {
                 if (room.getMaxParticipants() != null && currentCount >= room.getMaxParticipants()) {
                     throw new IllegalArgumentException("채팅방 인원이 가득 찼습니다");
                 }
-                
+
                 ChatMember newMember = ChatMember.builder()
                         .roomId(roomId)
                         .userId(user.getId())
                         .role(MemberRole.MEMBER)
                         .isActive(true)
                         .build();
-                
+
                 chatMemberRepository.save(newMember);
             }
         );
     }
     
     @Override
+    @CacheEvict(value = "chatRoom", key = "#roomId")
     public void leaveRoom(Long roomId, String username) {
         User user = userRepository.findByEmail(username)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다"));
-        
+
         ChatMember member = chatMemberRepository.findByRoomIdAndUserIdAndIsActiveTrue(roomId, user.getId())
                 .orElseThrow(() -> new IllegalArgumentException("채팅방에 참여하지 않은 사용자입니다"));
-        
+
         member.setIsActive(false);
         member.setLeftAt(LocalDateTime.now());
         chatMemberRepository.save(member);
