@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.goormi.routine.domain.group.repository.GroupMemberRepository;
 import com.goormi.routine.domain.notification.entity.NotificationType;
 import com.goormi.routine.domain.notification.service.NotificationService;
+import com.goormi.routine.domain.ranking.repository.RankingRepository;
 import com.goormi.routine.domain.ranking.service.RankingService;
 import com.goormi.routine.domain.review.dto.MonthlyReviewResponse;
 import com.goormi.routine.domain.review.repository.ReviewRedisRepository;
@@ -32,6 +33,7 @@ import com.goormi.routine.domain.userActivity.entity.UserActivity;
 import com.goormi.routine.domain.userActivity.repository.UserActivityRepository;
 import com.goormi.routine.domain.personal_routines.domain.PersonalRoutine;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,6 +47,7 @@ public class ReviewServiceImpl implements ReviewService {
 	private final NotificationService notificationService;
 	private final GroupMemberRepository groupMemberRepository;
 	private final ReviewRedisRepository reviewRedisRepository;
+	private final RankingRepository rankingRepository;
 	private final UserActivityRepository userActivityRepository;
 	private final ObjectMapper objectMapper;
 	private final AiReviewService aiReviewService;
@@ -53,34 +56,48 @@ public class ReviewServiceImpl implements ReviewService {
 	@Qualifier("aiReviewExecutor")
 	private final ExecutorService executorService;
 
-	private static final int BATCH_SIZE = 50;
-
 	@Override
 	public void sendMonthlyReviewMessages(String monthYear) {
 		String targetMonth = monthYear != null ? monthYear :
 			LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyy-MM"));
 
-		List<User> allUsers = userRepository.findAll();
-		List<CompletableFuture<Boolean>> futures = new ArrayList<>();
+		LocalDate startDate = LocalDate.parse(targetMonth + "-01");
+		LocalDate endDate = startDate.plusMonths(1).minusDays(1);
 
+		List<User> allUsers = userRepository.findAll();
+		if (allUsers.isEmpty()) {
+			log.warn("전송 대상 사용자가 없습니다.");
+			return;
+		}
+		List<Long> allUserIds = allUsers.stream().map(User::getId).collect(Collectors.toList());
+
+		// 1. ✨ 데이터 사전 로딩 (N+1 해결의 핵심)
+		Map<Long, User> userMap = allUsers.stream().collect(Collectors.toMap(User::getId, user -> user));
+
+		BatchData batchData = loadAllBatchData(allUserIds, startDate, endDate, targetMonth);
+
+		Map<Long, Map<ActivityType, Integer>> allActivityCounts = batchData.getAllActivityCounts();
+		Map<Long, Long> allScores = batchData.getAllScores();
+		Map<Long, Integer> allActiveGroupCounts = batchData.getAllActiveGroupCounts();
+		Map<Long, MonthlyReviewResponse> allPreviousReviews = batchData.getAllPreviousReviews();// ** ------------------------------------------- **
+
+		// 2. 비동기 작업 실행 (루프 제거 및 Map 인자 전달)
+		List<CompletableFuture<Boolean>> futures = allUsers.stream()
+			.map(user -> sendUserReviewMessageAsync(
+				user.getId(),
+				targetMonth,
+				userMap,
+				allActivityCounts,
+				allScores,
+				allActiveGroupCounts,
+				allPreviousReviews
+			))
+			.collect(Collectors.toList());
 		int successCount = 0;
 		int failCount = 0;
 
 		try {
-			int BATCH_SIZE = 50;
-			for (int i = 0; i < allUsers.size(); i += BATCH_SIZE) {
-				int endIdx = Math.min(i + BATCH_SIZE, allUsers.size());
-				List<User> batch = allUsers.subList(i, endIdx);
-
-				// 각 사용자마다 비동기 작업 생성
-				for (User user : batch) {
-					CompletableFuture<Boolean> future =
-						sendUserReviewMessageAsync(user.getId(), targetMonth);
-					futures.add(future);
-				}
-			}
-
-			// 모든 작업 완료 대기 (최대 30분)
+			// 모든 작업 완료 대기
 			CompletableFuture<Void> allFutures =
 				CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
 
@@ -110,13 +127,61 @@ public class ReviewServiceImpl implements ReviewService {
 		}
 	}
 
-	@Override
 	public void sendUserReviewMessage(Long userId, String monthYear) {
 		if (userId == null) {
 			throw new IllegalArgumentException("사용자 ID는 필수입니다.");
 		}
 
 		MonthlyReviewResponse currentReview = calculateMonthlyReview(userId, monthYear);
+
+		String messageContent;
+		try {
+			//gemini 호출
+			messageContent = generateAiMessageWithTimeout(currentReview, 10);
+		} catch (TimeoutException e) {
+			log.warn("API 타임아웃, 폴백 메시지 사용");
+			messageContent = generateReviewMessage(currentReview);
+		} catch (Exception e) {
+			log.error("AI 메시지 생성 실패", e);
+			messageContent = generateReviewMessage(currentReview);
+		}
+
+		currentReview.setMessageContent(messageContent);
+		currentReview.setMessageSent(true);
+
+		saveReviewToRedis(currentReview);
+
+		notificationService.createNotification(
+			NotificationType.MONTHLY_REVIEW,
+			null,
+			userId,
+			null);
+
+		log.info("단건 사용자 회고 메시지 전송 완료: 사용자 ID = {}, 월 = {}", userId, monthYear);
+	}
+
+	@Override
+	public void sendReviewMessageBatch(
+		Long userId,
+		String monthYear,
+		Map<Long, User> userMap,
+		Map<Long, Map<ActivityType, Integer>> allActivityCounts,
+		Map<Long, Long> allScores,
+		Map<Long, Integer> allActiveGroupCounts,
+		Map<Long, MonthlyReviewResponse> allPreviousReviews) {
+		if (userId == null) {
+			throw new IllegalArgumentException("사용자 ID는 필수입니다.");
+		}
+
+		MonthlyReviewResponse currentReview = calculateMonthlyReviewBatch(
+			userId,
+			monthYear,
+			userMap,
+			allActivityCounts,
+			allScores,
+			allActiveGroupCounts,
+			allPreviousReviews
+		);
 
 		String messageContent;
 		try {
@@ -223,6 +288,84 @@ public class ReviewServiceImpl implements ReviewService {
 					previousReview = parseReviewData(previousData);
 				}
 			}
+
+			int scoreDifference = 0;
+			int groupDifference = 0;
+			List<String> achievements = new ArrayList<>();
+
+			if (previousReview != null) {
+				scoreDifference = (int)currentScore - previousReview.getTotalScore();
+				groupDifference = currentGroups - previousReview.getParticipatingGroups();
+
+				if (scoreDifference > 0) {
+					achievements.add(String.format("지난 달보다 %d점 향상! (%d → %d)",
+						scoreDifference, previousReview.getTotalScore(), currentScore));
+				}
+				if (groupDifference > 0) {
+					achievements.add(String.format("새로운 그룹 %d개 참여로 도전 영역 확장!", groupDifference));
+				}
+			} else {
+				achievements.add("루틴잇 첫 달 도전 완료! 🎉");
+				if (currentScore > 0) {
+					achievements.add(String.format("첫 달 %d점 달성!", currentScore));
+				}
+			}
+
+			return MonthlyReviewResponse.builder()
+				.userId(userId)
+				.nickname(user.getNickname())
+				.monthYear(monthYear)
+				.totalScore((int)currentScore)
+				.participatingGroups(currentGroups)
+				.personalRoutineAchievementRate(personalRoutineAchievementRate)
+				.totalAuthCount(Math.max(totalAuthCount, 0))
+				.personalRoutineCount(Math.max(personalRoutineCount, 0))
+				.groupAuthCount(Math.max(groupAuthCount, 0))
+				.dailyChecklistCount(Math.max(dailyChecklistCount, 0))
+				.achievements(achievements)
+				.scoreDifference(scoreDifference)
+				.groupDifference(groupDifference)
+				.createdAt(LocalDateTime.now())
+				.build();
+
+		} catch (Exception e) {
+			log.error("월간 회고 계산 실패: 사용자 ID = {}, 월 = {}", userId, monthYear, e);
+			throw new RuntimeException("회고 계산 중 오류가 발생했습니다.", e);
+		}
+	}
+
+	private MonthlyReviewResponse calculateMonthlyReviewBatch(
+		Long userId,
+		String monthYear,
+		Map<Long, User> userMap,
+		Map<Long, Map<ActivityType, Integer>> allActivityCounts,
+		Map<Long, Long> allScores,
+		Map<Long, Integer> allActiveGroupCounts,
+		Map<Long, MonthlyReviewResponse> allPreviousReviews
+	) {
+		LocalDate startDate = LocalDate.parse(monthYear + "-01");
+
+		Map<ActivityType, Integer> activityCounts = allActivityCounts.getOrDefault(userId, Map.of());
+
+		int personalRoutineCount = activityCounts.getOrDefault(ActivityType.PERSONAL_ROUTINE_COMPLETE, 0);
+		int groupAuthCount = activityCounts.getOrDefault(ActivityType.GROUP_AUTH_COMPLETE, 0);
+		int dailyChecklistCount = activityCounts.getOrDefault(ActivityType.DAILY_CHECKLIST, 0);
+
+		int totalAuthCount = personalRoutineCount + groupAuthCount + dailyChecklistCount;
+
+		try {
+			User user = userMap.get(userId);
+			if (user == null) {
+				throw new IllegalArgumentException("사전 로딩된 사용자 데이터에서 찾을 수 없습니다: " + userId);
+			}
+
+			long currentScore = allScores.getOrDefault(userId, 0L);
+			int currentGroups = allActiveGroupCounts.getOrDefault(userId, 0);
+
+			int personalRoutineAchievementRate = calculatePersonalRoutineAchievementRate(userId, monthYear);
+
+			String previousMonth = getPreviousMonth(monthYear);
+			MonthlyReviewResponse previousReview = allPreviousReviews.get(userId); // ✨ Redis 배치 조회 결과 사용
 
 			int scoreDifference = 0;
 			int groupDifference = 0;
@@ -472,10 +615,24 @@ public class ReviewServiceImpl implements ReviewService {
 		return message.toString();
 	}
 
-	private CompletableFuture<Boolean> sendUserReviewMessageAsync(Long userId, String monthYear) {
+	private CompletableFuture<Boolean> sendUserReviewMessageAsync(
+		Long userId,
+		String monthYear,
+		Map<Long, User> userMap,
+		Map<Long, Map<ActivityType, Integer>> allActivityCounts,
+		Map<Long, Long> allScores,
+		Map<Long, Integer> allActiveGroupCounts,
+		Map<Long, MonthlyReviewResponse> allPreviousReviews) {
 		return CompletableFuture.supplyAsync(() -> {
 			try {
-				sendUserReviewMessage(userId, monthYear);
+				sendReviewMessageBatch(
+					userId,
+					monthYear,
+					userMap,
+					allActivityCounts,
+					allScores,
+					allActiveGroupCounts,
+					allPreviousReviews);
 				return true;
 			} catch (Exception e) {
 				log.error("전송 실패: userId={}", userId, e);
@@ -504,4 +661,66 @@ public class ReviewServiceImpl implements ReviewService {
 			throw e;
 		}
 	}
+
+	@RequiredArgsConstructor
+	@Getter
+	private static class BatchData {
+		private final Map<Long, Map<ActivityType, Integer>> allActivityCounts;
+		private final Map<Long, Long> allScores;
+		private final Map<Long, Integer> allActiveGroupCounts;
+		private final Map<Long, MonthlyReviewResponse> allPreviousReviews;
+	}
+
+	private BatchData loadAllBatchData(List<Long> allUserIds, LocalDate startDate, LocalDate endDate, String targetMonth) {
+
+		// 1. 활동 카운트 배치 조회 및 변환
+		List<Object[]> activityResults = userActivityRepository.countActivitiesBatch(allUserIds, startDate, endDate);
+		Map<Long, Map<ActivityType, Integer>> allActivityCounts = activityResults.stream()
+			.collect(Collectors.groupingBy(
+				result -> (Long) result[0],
+				Collectors.toMap(
+					result -> (ActivityType) result[1],
+					result -> (Integer) result[2]
+				)
+			));
+
+		// 2. 점수 배치 조회 및 변환
+		List<Object[]> scoreResults = rankingRepository.findTotalScoresByUserIds(allUserIds);
+
+		Map<Long, Long> allScores = scoreResults.stream()
+			.collect(Collectors.toMap(
+				result -> (Long) result[0],  // Key: User ID
+				result -> (Long) result[1]   // Value: Total Score
+			));
+
+		// 3. 그룹 카운트 배치 조회 및 변환
+		List<Object[]> groupResults = groupMemberRepository.countActiveGroupsBatch(allUserIds);
+
+		Map<Long, Integer> allActiveGroupCounts = groupResults.stream()
+			.collect(Collectors.toMap(
+				result -> (Long) result[0],    // Key: User ID
+				result -> (Integer) result[1]  // Value: Active Group Count
+			));
+
+		// 4. 이전 회고 데이터 배치 조회 (Redis)
+		String previousMonth = getPreviousMonth(targetMonth);
+		Map<Long, String> previousReviewsJsonMap = reviewRedisRepository.getPreviousReviewsJsonBatch(allUserIds, previousMonth);
+
+		Map<Long, MonthlyReviewResponse> allPreviousReviews = previousReviewsJsonMap.entrySet().stream()
+			.collect(Collectors.toMap(
+				Map.Entry::getKey,
+				entry -> parseReviewData(entry.getValue())
+			));
+
+		allPreviousReviews.values().removeIf(java.util.Objects::isNull);
+
+
+		return new BatchData(
+			allActivityCounts,
+			allScores,
+			allActiveGroupCounts,
+			allPreviousReviews
+		);
+	}
+
 }
