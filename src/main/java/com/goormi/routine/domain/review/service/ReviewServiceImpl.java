@@ -127,6 +127,7 @@ public class ReviewServiceImpl implements ReviewService {
 		}
 	}
 
+	@Override
 	public void sendUserReviewMessage(Long userId, String monthYear) {
 		if (userId == null) {
 			throw new IllegalArgumentException("사용자 ID는 필수입니다.");
