@@ -135,30 +135,23 @@ public class ReviewServiceImpl implements ReviewService {
 
 		MonthlyReviewResponse currentReview = calculateMonthlyReview(userId, monthYear);
 
-		String messageContent;
-		try {
-			//gemini 호출
-			messageContent = generateAiMessageWithTimeout(currentReview, 10);
-		} catch (TimeoutException e) {
-			log.warn("API 타임아웃, 폴백 메시지 사용");
-			messageContent = generateReviewMessage(currentReview);
-		} catch (Exception e) {
-			log.error("AI 메시지 생성 실패", e);
-			messageContent = generateReviewMessage(currentReview);
-		}
-
-		currentReview.setMessageContent(messageContent);
-		currentReview.setMessageSent(true);
-
+		String fallback = generateReviewMessage(currentReview);
+		currentReview.setMessageContent(fallback);
+		currentReview.setMessageSent(false);
 		saveReviewToRedis(currentReview);
 
 		notificationService.createNotification(
 			NotificationType.MONTHLY_REVIEW,
 			null,
 			userId,
-			null);
+			null
+		);
 
-		log.info("단건 사용자 회고 메시지 전송 완료: 사용자 ID = {}, 월 = {}", userId, monthYear);
+		// AI 메시지 생성 비동기로 분리
+		generateAiMessageAsync(currentReview, userId, monthYear);
+
+		log.info("월간 리뷰 기본 저장 및 알림 전송 완료 (AI 비동기 처리 예정) userId={}, month={}",
+			userId, monthYear);
 	}
 
 	@Override
@@ -433,6 +426,28 @@ public class ReviewServiceImpl implements ReviewService {
 			log.error("회고 데이터 파싱 실패. 새로 계산합니다. 사용자 ID: {}, 월: {}", userId, monthYear, e);
 			return calculateMonthlyReview(userId, monthYear);
 		}
+	}
+
+
+	private void generateAiMessageAsync(MonthlyReviewResponse review, Long userId, String monthYear) {
+		CompletableFuture.runAsync(() -> {
+			try {
+				String aiMessage = generateAiMessageWithTimeout(review, 10);
+
+				// AI 메시지 생성 성공 시
+				review.setMessageContent(aiMessage);
+				review.setMessageSent(true);
+				saveReviewToRedis(review);
+
+				log.info("AI 메시지 생성 및 Redis 업데이트 성공: userId={}", userId);
+
+			} catch (TimeoutException e) {
+				log.warn("AI API 타임아웃 발생 (비동기): userId={}, month={}", userId, monthYear);
+
+			} catch (Exception e) {
+				log.error("AI 메시지 생성 중 예외 발생 (비동기): userId={}, month={}", userId, monthYear, e);
+			}
+		}, executorService);
 	}
 
 	private int calculatePersonalRoutineAchievementRate(Long userId, String monthYear) {
