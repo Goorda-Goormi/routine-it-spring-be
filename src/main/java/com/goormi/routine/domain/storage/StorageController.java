@@ -7,7 +7,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +22,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Map;
@@ -33,10 +33,11 @@ import java.util.UUID;
 @RequestMapping("/api/storage")
 @RequiredArgsConstructor
 @Validated
-@Tag(name = "Storage", description = "S3 Presigned URL 발급 및 조회 API")
+@Tag(name = "Storage", description = "S3 Presigned URL 발급 및 조회/삭제 API")
 public class StorageController {
 
     private final S3Presigner presigner;
+    private final S3Client s3;
 
     @Value("${routineit.s3.profile-bucket}")
     private String bucket;
@@ -45,30 +46,64 @@ public class StorageController {
     private long expMin;
 
     private static final Set<String> TYPES = Set.of(
-            "image/jpeg","image/png","image/webp","image/heic","image/heif"
+            "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"
     );
-    private static final Set<String> EXTS  = Set.of(
-            "jpg","jpeg","png","webp","heic","heif"
+    private static final Set<String> EXTS = Set.of(
+            "jpg", "jpeg", "png", "webp", "heic", "heif"
     );
-
-    private final S3Client s3;
 
     enum Visibility { PUBLIC, PRIVATE }
 
+    // -------------------- 공통 유틸 --------------------
+
     private Visibility parseVisibility(String v) {
         if (v == null) return Visibility.PUBLIC;
-        try { return Visibility.valueOf(v.toUpperCase()); }
-        catch (IllegalArgumentException e) { return Visibility.PUBLIC; }
+        try {
+            return Visibility.valueOf(v.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return Visibility.PUBLIC;
+        }
     }
 
     private String prefixFor(Visibility v) {
         return (v == Visibility.PUBLIC) ? "public" : "private";
     }
-    // ---------- 공통 유틸 ----------
-    private ResponseEntity<Map<String,String>> makePutUrl(String key, String contentType) {
-        if (!TYPES.contains(contentType.toLowerCase())) {
-            return ResponseEntity.badRequest().body(Map.of("error","unsupported contentType"));
+
+    /**
+     * key 또는 전체 URL 이 들어와도 실제 S3 key 로 변환
+     * - https://.../public/.../file.jpg -> public/.../file.jpg
+     * - http/https 가 아니면 그대로 key 로 사용
+     */
+    private String extractRealKey(String keyOrUrl) {
+        if (keyOrUrl == null || keyOrUrl.isBlank()) return null;
+
+        String trimmed = keyOrUrl.trim();
+
+        // URL 인 경우
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            URI uri = URI.create(trimmed);
+            String path = uri.getPath(); // e.g. "/public/users/1/profile/xxx.jpg"
+            if (path == null || path.isBlank()) return null;
+            if (path.startsWith("/")) {
+                return path.substring(1); // "public/users/1/profile/xxx.jpg"
+            }
+            return path;
         }
+
+        // 이미 key 형태라고 가정
+        return trimmed;
+    }
+
+    private boolean isAllowedKey(String key) {
+        if (key == null) return false;
+        return key.startsWith("public/") || key.startsWith("private/");
+    }
+
+    private ResponseEntity<Map<String, String>> makePutUrl(String key, String contentType) {
+        if (!TYPES.contains(contentType.toLowerCase())) {
+            return ResponseEntity.badRequest().body(Map.of("error", "unsupported contentType"));
+        }
+
         PutObjectRequest por = PutObjectRequest.builder()
                 .bucket(bucket)
                 .key(key)
@@ -89,12 +124,13 @@ public class StorageController {
 
     private static String safeExt(String filename) {
         String ext = filename.lastIndexOf('.') > 0
-                ? filename.substring(filename.lastIndexOf('.')+1).toLowerCase()
+                ? filename.substring(filename.lastIndexOf('.') + 1).toLowerCase()
                 : "";
         return ext;
     }
 
-    // ---------- 1) 프로필 이미지 ----------
+    // -------------------- 1) 프로필 이미지 --------------------
+
     @Operation(
             summary = "프로필 이미지 업로드 presign 발급",
             description = "사용자 ID와 파일명을 받아 S3 업로드용 presigned PUT URL을 반환합니다.",
@@ -104,7 +140,9 @@ public class StorageController {
                             description = "성공",
                             content = @Content(
                                     mediaType = "application/json",
-                                    examples = @ExampleObject(value = "{ \"uploadUrl\": \"https://...\", \"key\": \"users/1/profile/uuid.jpg\", \"expiresIn\": \"300\" }")
+                                    examples = @ExampleObject(
+                                            value = "{ \"uploadUrl\": \"https://...\", \"key\": \"public/users/1/profile/uuid.jpg\", \"expiresIn\": \"300\" }"
+                                    )
                             )
                     ),
                     @ApiResponse(responseCode = "400", description = "허용되지 않은 확장자/타입")
@@ -118,20 +156,20 @@ public class StorageController {
             @RequestParam(defaultValue = "image/jpeg") String contentType,
             @RequestParam(defaultValue = "PRIVATE") String visibility
     ) {
-
         String ext = safeExt(filename);
         if (!EXTS.contains(ext)) {
-            return ResponseEntity.badRequest().body(Map.of("error","ext must be jpg/jpeg/png/webp/heic/heif"));
+            return ResponseEntity.badRequest().body(Map.of("error", "ext must be jpg/jpeg/png/webp/heic/heif"));
         }
 
         Visibility v = parseVisibility(visibility);
         String prefix = prefixFor(v);
 
-        String key = "%s/users/%d/profile/%s.%s".formatted(prefix,userId, UUID.randomUUID(), ext);
+        String key = "%s/users/%d/profile/%s.%s".formatted(prefix, userId, UUID.randomUUID(), ext);
         return makePutUrl(key, contentType);
     }
 
-    // ---------- 2) 그룹루틴 인증샷(proof-shot) ----------
+    // -------------------- 2) 그룹루틴 인증샷(proof-shot) --------------------
+
     @Operation(
             summary = "그룹루틴 인증샷 presign 발급",
             description = "그룹 ID, 사용자 ID를 받아 그룹루틴 인증샷 업로드용 presigned PUT URL을 반환합니다."
@@ -140,25 +178,30 @@ public class StorageController {
     public ResponseEntity<Map<String, String>> presignProofShotPut(
             @Parameter(description = "그룹 ID", required = true) @RequestParam Long groupId,
             @Parameter(description = "사용자 ID", required = true) @RequestParam Long userId,
-            @Parameter(description = "MIME 타입", example = "image/jpeg") @RequestParam(defaultValue = "image/jpeg") String contentType,
-            @Parameter(description = "파일명", example = "photo.jpg") @RequestParam(defaultValue = "photo.jpg") String filename,
-            @Parameter(description = "공개 비공개", example="PUBLIC/PRIVATE") @RequestParam(defaultValue = "PRIVATE") String visibility
+            @Parameter(description = "MIME 타입", example = "image/jpeg")
+            @RequestParam(defaultValue = "image/jpeg") String contentType,
+            @Parameter(description = "파일명", example = "photo.jpg")
+            @RequestParam(defaultValue = "photo.jpg") String filename,
+            @Parameter(description = "공개 비공개", example = "PUBLIC/PRIVATE")
+            @RequestParam(defaultValue = "PRIVATE") String visibility
     ) {
-
         String ext = safeExt(filename);
         if (!EXTS.contains(ext)) {
-            return ResponseEntity.badRequest().body(Map.of("error","ext must be jpg/jpeg/png/webp/heic/heif"));
+            return ResponseEntity.badRequest().body(Map.of("error", "ext must be jpg/jpeg/png/webp/heic/heif"));
         }
+
         Visibility v = parseVisibility(visibility);
         String prefix = prefixFor(v);
 
         LocalDate d = LocalDate.now();
         String key = "%s/proof-shots/%d/%d/%d/%02d/%02d/%s.%s"
-                .formatted(prefix ,groupId, userId, d.getYear(), d.getMonthValue(), d.getDayOfMonth(), UUID.randomUUID(), ext);
+                .formatted(prefix, groupId, userId, d.getYear(), d.getMonthValue(), d.getDayOfMonth(), UUID.randomUUID(), ext);
+
         return makePutUrl(key, contentType);
     }
 
-    // ---------- 3) 그룹 채팅방 사진(group-room) ----------
+    // -------------------- 3) 그룹 채팅방 사진(group-room) --------------------
+
     @Operation(
             summary = "그룹 채팅방 사진 presign 발급",
             description = "채팅방 ID, 사용자 ID를 받아 그룹 채팅방 사진 업로드용 presigned PUT URL을 반환합니다."
@@ -171,21 +214,26 @@ public class StorageController {
             @RequestParam(defaultValue = "image/jpeg") String contentType,
             @Parameter(description = "파일명", example = "photo.jpg")
             @RequestParam(defaultValue = "photo.jpg") String filename,
-            @Parameter(description = "", example = "")
+            @Parameter(description = "공개 비공개", example = "PUBLIC/PRIVATE")
             @RequestParam(defaultValue = "PUBLIC") String visibility
-            ) {
-
+    ) {
         String ext = safeExt(filename);
         if (!EXTS.contains(ext)) {
-            return ResponseEntity.badRequest().body(Map.of("error","ext must be jpg/jpeg/png/webp/heic/heif"));
+            return ResponseEntity.badRequest().body(Map.of("error", "ext must be jpg/jpeg/png/webp/heic/heif"));
         }
+
+        Visibility v = parseVisibility(visibility);
+        String prefix = prefixFor(v);
+
         LocalDate d = LocalDate.now();
-        String key = "group-rooms/%d/%d/%d/%02d/%02d/%s.%s"
-                .formatted(roomId, userId, d.getYear(), d.getMonthValue(), d.getDayOfMonth(), UUID.randomUUID(), ext);
+        String key = "%s/group-rooms/%d/%d/%d/%02d/%02d/%s.%s"
+                .formatted(prefix, roomId, userId, d.getYear(), d.getMonthValue(), d.getDayOfMonth(), UUID.randomUUID(), ext);
+
         return makePutUrl(key, contentType);
     }
 
-    // ---------- (공통) 일시 조회용 GET 프리사인 ----------
+    // -------------------- (공통) 일시 조회용 GET 프리사인 --------------------
+
     @Operation(
             summary = "파일 접근 presign 발급",
             description = "S3에 업로드된 객체 키를 받아 임시 접근용 presigned GET URL을 반환합니다.",
@@ -202,11 +250,12 @@ public class StorageController {
     )
     @GetMapping("/presign-get")
     public Map<String, String> presignGet(
-            @Parameter(description = "S3 객체 키", required = true, example = "users/1/profile/uuid.jpg")
+            @Parameter(description = "S3 객체 키", required = true,
+                    example = "public/users/1/profile/uuid.jpg")
             @RequestParam String key,
             @Parameter(description = "다운로드 여부 (download|inline)", example = "inline")
-            @RequestParam(required = false) String as) {
-
+            @RequestParam(required = false) String as
+    ) {
         boolean download = "download".equalsIgnoreCase(as);
 
         GetObjectRequest gor = GetObjectRequest.builder()
@@ -222,37 +271,50 @@ public class StorageController {
         return Map.of("url", req.url().toString());
     }
 
+    // -------------------- 삭제 --------------------
+
     @Operation(
             summary = "객체 삭제",
-            description = "S3 객체 키를 받아 해당 객체를 삭제합니다. 권한이 허용된 prefix(public/private) 하위만 삭제됩니다.",
+            description = """
+                    S3 객체 키 또는 전체 URL을 받아 해당 객체를 삭제합니다.
+                    - key 예시: public/users/1/profile/xxx.jpg
+                    - url 예시: https://bucket.s3....../public/users/1/profile/xxx.jpg
+                    권한이 허용된 prefix(public/private) 하위만 삭제됩니다.
+                    """,
             responses = {
                     @ApiResponse(responseCode = "204", description = "삭제 성공(또는 이미 없음)"),
                     @ApiResponse(responseCode = "400", description = "허용되지 않은 키"),
-                    @ApiResponse(responseCode = "403", description = "권한 없음"),
                     @ApiResponse(responseCode = "500", description = "서버 오류")
             }
     )
     @DeleteMapping("/delete")
     public ResponseEntity<Void> deleteObject(
-            @Parameter(description = "S3 객체 키", required = true, example = "public/users/1/profile/xxx.jpg")
+            @Parameter(
+                    description = "S3 객체 키 또는 전체 URL",
+                    required = true,
+                    example = "public/users/1/profile/xxx.jpg"
+            )
             @RequestParam String key
     ) {
-        // 1) 키 검증: public/ 또는 private/ 로 시작하는지만 허용
-        if (key == null || !(key.startsWith("public/") || key.startsWith("private/"))) {
+        // 1) key 또는 URL → 실제 S3 key 추출
+        String realKey = extractRealKey(key);
+
+        // 2) 허용된 prefix 인지 검증
+        if (!isAllowedKey(realKey)) {
             return ResponseEntity.badRequest().build();
         }
 
         try {
             DeleteObjectRequest req = DeleteObjectRequest.builder()
                     .bucket(bucket)
-                    .key(key)
+                    .key(realKey)
                     .build();
             s3.deleteObject(req);
 
-            // 존재하지 않는 경우에도 S3는 204 유사 처리로 넘어갈 수 있음.
+            // 존재하지 않는 경우에도 S3는 보통 에러 없이 넘어감.
             return ResponseEntity.noContent().build(); // 204
         } catch (NoSuchKeyException e) {
-            // 이미 없는 경우: 204로 동일 처리하거나 404를 주고 싶다면 아래로 변경
+            // 이미 없는 경우: 204 로 동일 처리
             return ResponseEntity.noContent().build();
         } catch (SdkException e) {
             // 권한, 네트워크 등
