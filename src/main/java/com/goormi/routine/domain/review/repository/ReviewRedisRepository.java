@@ -8,6 +8,7 @@ import com.goormi.routine.domain.auth.repository.RedisRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Repository
@@ -85,5 +86,34 @@ public class ReviewRedisRepository {
 
 	public boolean hasFailedMessages(String monthYear) {
 		return !getFailedUserIds(monthYear).isEmpty();
+	}
+
+	public Map<Long, String> getPreviousReviewsJsonBatch(
+		List<Long> userIds, String previousMonth) {
+
+		List<String> keys = userIds.stream()
+			.map(id -> REVIEW_DATA_PREFIX + id + ":" + previousMonth)
+			.collect(Collectors.toList());
+
+		try {
+			List<String> jsonList = redisRepository.getMultipleData(keys);
+
+			if (jsonList == null || jsonList.isEmpty()) {
+				return Map.of();
+			}
+
+			Map<Long, String> reviewMap = new java.util.HashMap<>();
+			for (int i = 0; i < keys.size(); i++) {
+				String json = jsonList.get(i);
+				if (json != null) {
+					Long userId = userIds.get(i);
+					reviewMap.put(userId, json);
+				}
+			}
+			return reviewMap;
+		} catch (Exception e) {
+			log.error("이전 회고 데이터 배치 조회 실패: 월 = {}", previousMonth, e);
+			return Map.of();
+		}
 	}
 }

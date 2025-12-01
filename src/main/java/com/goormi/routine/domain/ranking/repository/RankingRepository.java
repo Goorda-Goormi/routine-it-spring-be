@@ -42,4 +42,11 @@ public interface RankingRepository extends JpaRepository<Ranking, Long> {
 	List<Ranking> findAllByGroupId(Long groupId);
 
 	void deleteAllByGroupId(Long groupId);
+
+	@Query(value = "SELECT r.user_id, SUM(r.score) as total_score " +
+		"FROM rankings r " +
+		"WHERE r.user_id IN :userIds " +
+		"GROUP BY r.user_id",
+		nativeQuery = true)
+	List<Object[]> findTotalScoresByUserIds(@Param("userIds") List<Long> userIds);
 }
