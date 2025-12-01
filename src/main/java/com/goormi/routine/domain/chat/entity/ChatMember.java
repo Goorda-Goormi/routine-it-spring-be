@@ -6,8 +6,12 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "chat_members", 
-    uniqueConstraints = {@UniqueConstraint(columnNames = {"room_id", "user_id"})})
+@Table(name = "chat_members",
+    uniqueConstraints = {@UniqueConstraint(columnNames = {"room_id", "user_id"})},
+    indexes = {
+        @Index(name = "idx_chat_member_room_active", columnList = "room_id, is_active"),
+        @Index(name = "idx_chat_member_user_active", columnList = "user_id, is_active")
+    })
 @Getter
 @Setter
 @NoArgsConstructor
