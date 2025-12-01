@@ -428,24 +428,47 @@ public class ReviewServiceImpl implements ReviewService {
 		}
 	}
 
+	private final int MAX_RETRIES = 3; // 최대 재시도 횟수
+	private final long RETRY_DELAY_SECONDS = 2; // 재시도 간 딜레이(초)
 
 	private void generateAiMessageAsync(MonthlyReviewResponse review, Long userId, String monthYear) {
 		CompletableFuture.runAsync(() -> {
-			try {
-				String aiMessage = generateAiMessageWithTimeout(review, 10);
+			int attempt = 0;
+			while (attempt < MAX_RETRIES) {
+				attempt++;
 
-				// AI 메시지 생성 성공 시
-				review.setMessageContent(aiMessage);
-				review.setMessageSent(true);
-				saveReviewToRedis(review);
+				if (attempt > 1) {
+					try {
+						log.info("AI 메시지 생성 재시도 대기 ({}초): userId={}, month={}, 시도={}",
+							RETRY_DELAY_SECONDS, userId, monthYear, attempt);
+						Thread.sleep(RETRY_DELAY_SECONDS * 1000);
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						log.error("재시도 대기 중 스레드 인터럽트 발생: userId={}, month={}", userId, monthYear, e);
+						break;
+					}
+				}
 
-				log.info("AI 메시지 생성 및 Redis 업데이트 성공: userId={}", userId);
+				try {
+					String aiMessage = generateAiMessageWithTimeout(review, 10);
 
-			} catch (TimeoutException e) {
-				log.warn("AI API 타임아웃 발생 (비동기): userId={}, month={}", userId, monthYear);
+					// AI 메시지 생성 성공 시
+					review.setMessageContent(aiMessage);
+					review.setMessageSent(true);
+					saveReviewToRedis(review);
 
-			} catch (Exception e) {
-				log.error("AI 메시지 생성 중 예외 발생 (비동기): userId={}, month={}", userId, monthYear, e);
+					log.info("AI 메시지 생성 및 Redis 업데이트 성공: userId={}", userId);
+
+				} catch (TimeoutException e) {
+					log.warn("AI API 타임아웃 발생 (비동기): userId={}, month={}", userId, monthYear);
+
+				} catch (Exception e) {
+					log.error("AI 메시지 생성 중 예외 발생 (비동기): userId={}, month={}", userId, monthYear, e);
+				}
+				if (attempt == MAX_RETRIES) {
+					log.error("AI 메시지 생성 최종 실패. 폴백 메시지 유지: userId={}, month={}, 총 시도={}",
+						userId, monthYear, MAX_RETRIES);
+				}
 			}
 		}, executorService);
 	}
