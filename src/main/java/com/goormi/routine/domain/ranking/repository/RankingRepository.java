@@ -34,24 +34,12 @@ public interface RankingRepository extends JpaRepository<Ranking, Long> {
 		nativeQuery = true)
 	Page<Object[]> findPersonalRankingsByMonth(@Param("monthYear") String monthYear, Pageable pageable);
 
-	// @Query("SELECT r.groupId, g.groupName, g.category, g.groupType, COALESCE(SUM(r.score), 0) as totalScore " +
-	// 	"FROM Ranking r JOIN r.group g " +
-	// 	"WHERE r.monthYear = :monthYear " +
-	// 	"AND r.groupId IS NOT NULL " +
-	// 	"AND g.isActive = true " +
-	// 	"AND (:category IS NULL OR g.category = :category) " +
-	// 	"AND (:groupType IS NULL OR g.groupType = :groupType) " +
-	// 	"GROUP BY r.groupId, g.groupName, g.category, g.groupType " +
-	// 	"ORDER BY totalScore DESC")
-	// Page<Object[]> findGroupRankingsByMonthAndFilters(
-	// 	@Param("monthYear") String monthYear,
-	// 	@Param("category") String category,
-	// 	@Param("groupType") String groupType,
-	// 	Pageable pageable
-	// );
-
 	@Query("SELECT r FROM Ranking r WHERE r.groupId = :groupId AND r.userId IS NOT NULL AND r.monthYear LIKE CONCAT(:monthYear, '%') ORDER BY r.score DESC")
 	List<Ranking> findAllUsersByGroupIdAndMonthOrderByScore(@Param("groupId") Long groupId, @Param("monthYear") String monthYear);
 
 	Optional<Ranking> findByUserIdAndGroupIdAndMonthYear(Long userId, Long groupId, String monthYear);
+
+	List<Ranking> findAllByGroupId(Long groupId);
+
+	void deleteAllByGroupId(Long groupId);
 }
