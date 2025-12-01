@@ -67,4 +67,11 @@ public class RedisRepository {
 	public void setExpire(String key, long seconds) {
 		redisTemplate.expire(key, Duration.ofSeconds(seconds));
 	}
+
+	public List<String> getMultipleData(List<String> keys) {
+		if (keys == null || keys.isEmpty()) {
+			return List.of();
+		}
+		return redisTemplate.opsForValue().multiGet(keys);
+	}
 }
