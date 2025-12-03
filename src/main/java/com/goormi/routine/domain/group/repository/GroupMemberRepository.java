@@ -55,4 +55,15 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> 
 
     @Query("SELECT gm FROM GroupMember gm WHERE gm.group.groupId = :groupId AND gm.status = 'JOINED'")
     List<GroupMember> findAllByGroupId(@Param("groupId") Long groupId);
+
+    @Query("""
+    SELECT 
+        gm.user.id, 
+        CAST(COUNT(gm) AS integer)
+    FROM GroupMember gm
+    WHERE gm.user.id IN :userIds
+      AND gm.status = 'JOINED'
+    GROUP BY gm.user.id
+    """)
+    List<Object[]> countActiveGroupsBatch(@Param("userIds") List<Long> userIds);
 }

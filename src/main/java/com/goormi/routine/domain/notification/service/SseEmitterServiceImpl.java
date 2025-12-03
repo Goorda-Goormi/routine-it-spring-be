@@ -86,7 +86,7 @@ public class SseEmitterServiceImpl implements SseEmitterService {
                 .forEach(entry -> sendToClient(emitter, entry.getKey(), entry.getValue()));
     }
 
-    @Scheduled(fixedRate = 30000)
+    @Scheduled(fixedRate = 10000)
     public void sendHeartbeat() {
         final Map<String, SseEmitter> emitters = sseEmitterRepository.findAllEmitters();
         emitters.forEach((emitterId, emitter) -> {

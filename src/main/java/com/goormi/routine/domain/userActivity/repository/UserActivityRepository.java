@@ -61,4 +61,21 @@ public interface UserActivityRepository extends JpaRepository<UserActivity, Long
         @Param("activityType") ActivityType activityType,
         @Param("activityDate") LocalDate activityDate,
         @Param("groupId") Long groupId
-    );}
+    );
+
+    @Query("""
+    SELECT 
+        ua.user.id, 
+        ua.activityType, 
+        CAST(COUNT(ua) AS integer)
+    FROM UserActivity ua
+    WHERE ua.user.id IN :userIds
+      AND ua.activityDate BETWEEN :startDate AND :endDate
+    GROUP BY ua.user.id, ua.activityType
+    """)
+    List<Object[]> countActivitiesBatch(
+        @Param("userIds") List<Long> userIds,
+        @Param("startDate") LocalDate startDate,
+        @Param("endDate") LocalDate endDate
+    );
+}

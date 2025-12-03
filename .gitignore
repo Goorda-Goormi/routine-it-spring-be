@@ -128,3 +128,23 @@ Desktop.ini
 
 # scripts
 scripts/
+
+# Performance Test
+/performance-test/jmeter/results/
+/performance-test/logs/
+/performance-test/reports/
+*.jtl
+*.log
+/performance-test/bulk-data/generated-data/
+/performance-test/monitoring/data/
+
+# JMeter Temporary File
+jmeter.log
+reportgenerator_*
+
+# Large CSV Files (keep small sample files)
+/performance-test/jmeter/test-data/bulk-*.csv
+
+# System Files
+/performance-test/current-ip.txt
+*.hprof

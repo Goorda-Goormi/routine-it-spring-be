@@ -29,4 +29,9 @@ public interface ChatMemberRepository extends JpaRepository<ChatMember, Long> {
     @Modifying
     @Query("UPDATE ChatMember cm SET cm.lastReadMessageId = :messageId WHERE cm.roomId = :roomId AND cm.userId = :userId")
     void updateLastReadMessage(@Param("roomId") Long roomId, @Param("userId") Long userId, @Param("messageId") Long messageId);
+
+    @Query("SELECT cm.roomId as roomId, COUNT(cm) as count FROM ChatMember cm " +
+           "WHERE cm.roomId IN :roomIds AND cm.isActive = true " +
+           "GROUP BY cm.roomId")
+    List<Object[]> countActiveMembersByRoomIds(@Param("roomIds") List<Long> roomIds);
 }
