@@ -11,6 +11,9 @@ import com.goormi.routine.domain.chat.repository.ChatRoomRepository;
 import com.goormi.routine.domain.group.entity.Group;
 import com.goormi.routine.domain.group.entity.GroupType;
 import com.goormi.routine.domain.group.repository.GroupRepository;
+import com.goormi.routine.domain.notification.entity.Notification;
+import com.goormi.routine.domain.notification.entity.NotificationType;
+import com.goormi.routine.domain.notification.repository.NotificationRepository;
 import com.goormi.routine.domain.user.entity.User;
 import com.goormi.routine.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +39,7 @@ public class BulkDataServiceImpl implements BulkDataService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMemberRepository chatMemberRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final NotificationRepository notificationRepository;
 
 	@Override
 	@Transactional
@@ -91,12 +95,14 @@ public class BulkDataServiceImpl implements BulkDataService {
 	@Override
 	public BulkDataResponse generateGroups(int count) {
         User user = User.builder()
-                .kakaoId("maybeLeader")
+                .kakaoId("test_kakao_@test.leader")
                 .email("maybeLeader@111.com")
                 .nickname("maybeLeader")
                 .role(User.UserRole.USER)
                 .active(true)
                 .build();
+
+        userRepository.save(user);
 
         List<Group> groups = new ArrayList<>();
         for (long  i = 1L; i <= count; i++) {
@@ -115,6 +121,7 @@ public class BulkDataServiceImpl implements BulkDataService {
                         .maxMembers(20)
                         .build();
                 study.setInitialValues(study);
+                log.info("created: {}", study.getCreatedAt());
                 groups.add(study);
             } else {
                 Group living = Group.builder()
@@ -164,8 +171,8 @@ public class BulkDataServiceImpl implements BulkDataService {
                 .category("study")
                 .maxMembers(20)
                 .build();
-        groupRepository.save(saved);
         saved.setInitialValues(saved);
+        groupRepository.save(saved);
 
         ChatRoom chatRoom = ChatRoom.builder()
                 .groupId(saved.getGroupId())
@@ -214,8 +221,31 @@ public class BulkDataServiceImpl implements BulkDataService {
 
 	@Override
 	public BulkDataResponse generateNotifications(int count) {
-		// TODO
-		return BulkDataResponse.error("notifications", "아직 구현되지 않음 - 팀원 3이 구현 예정");
+        User me =  userRepository.findById(1L)
+                .orElseThrow(()->new RuntimeException("user not found"));
+        userRepository.save(me);
+
+        List<Notification> notificationList = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            Notification notification = Notification.builder()
+                    .content("test content" + i)
+                    .notificationType(NotificationType.GROUP_TODAY_AUTH_REJECTED)
+                    .sender(me)
+                    .receiver(me)
+                    .isRead(false)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            notificationList.add(notification);
+            // 배치 사이즈마다 저장 (메모리 효율성)
+            if (i % 100 == 0) {
+                notificationRepository.saveAll(notificationList);
+                notificationList.clear();
+                log.info("notifications batch saved: {}/{}", i, count);
+            }
+        }
+
+		return BulkDataResponse.error("notifications", "구현중");
 	}
 
 	@Override
@@ -281,11 +311,40 @@ public class BulkDataServiceImpl implements BulkDataService {
 				.stream()
 				.filter(user -> user.getKakaoId().startsWith("test_kakao_"))
 				.toList();
-
 			totalDeleted += testUsers.size();
 			userRepository.deleteAll(testUsers);
 
-			// TODO: 각자 자신의 테스트 데이터 정리 로직 추가
+            // 테스트 그룹 삭제 (group_으로 시작하는 이름)
+            List<Group> testGroups = groupRepository.findAll()
+                    .stream()
+                    .filter(group -> group.getGroupName().startsWith("group_"))
+                    .toList();
+            totalDeleted += testGroups.size();
+            groupRepository.deleteAll(testGroups);
+
+            // 테스트 채팅방 삭제 (group_으로 시작하는 이름)
+            List<ChatRoom> testChatRooms = chatRoomRepository.findAll()
+                    .stream()
+                    .filter(chatRoom -> chatRoom.getRoomName().startsWith("group_"))
+                    .toList();
+            totalDeleted += testChatRooms.size();
+            chatRoomRepository.deleteAll(testChatRooms);
+
+            // 테스트 채팅메세지 삭제 chattingMESSAGE_로 시작하는 메세지
+            List<ChatMessage> testChatMessages = chatMessageRepository.findAll()
+                    .stream()
+                    .filter(chatMessage -> chatMessage.getMessage().startsWith("chattingMESSAGE_"))
+                    .toList();
+            totalDeleted += testChatMessages.size();
+            chatMessageRepository.deleteAll(testChatMessages);
+
+            // 테스트 알림 삭제 test로 시작하는 알림
+            List<Notification> testNotifications = notificationRepository.findAll()
+                    .stream()
+                    .filter(notification -> notification.getContent().startsWith("test"))
+                    .toList();
+            totalDeleted += testNotifications.size();
+            notificationRepository.deleteAll(testNotifications);
 
 			long executionTime = System.currentTimeMillis() - startTime;
 			log.info("Bulk data cleanup completed: {} items deleted in {}ms", totalDeleted, executionTime);

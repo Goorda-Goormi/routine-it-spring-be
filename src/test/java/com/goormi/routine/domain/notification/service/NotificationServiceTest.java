@@ -25,7 +25,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import com.goormi.routine.domain.calendar.service.CalendarIntegrationService;
 
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -109,8 +111,9 @@ class NotificationServiceTest {
         assertThat(response.getContent()).isEqualTo(expectedContent);
         assertThat(response.getNotificationType()).isEqualTo(type);
 
-        List<Notification> notifications = notificationRepository.findByReceiver_IdOrderByCreatedAtDesc(leader.getId());
-        assertThat(notifications).hasSize(1);
+        Page<Notification> notifications = notificationRepository.findByReceiver_IdOrderByCreatedAtDesc(leader.getId(), PageRequest.of(0, 1, Sort.by("createdAt").descending()));
+        assertThat(notifications.getTotalElements()).isEqualTo(1);
+        assertThat(notifications.getContent().get(0).getNotificationType()).isEqualTo(type);
     }
 
     @Test
@@ -121,10 +124,11 @@ class NotificationServiceTest {
         notificationRepository.save(Notification.createNotification("content2", NotificationType.GROUP_MEMBER_ROLE_UPDATED, leader, user, savedGroup));
 
         // when
-        List<NotificationResponse> responses = notificationService.getNotificationsByReceiver(user.getId());
+        Page<NotificationResponse> responses = notificationService.getNotificationsByReceiver(user.getId(), PageRequest.of(0, 10, Sort.by("createdAt").descending()));
 
         // then
-        assertThat(responses).hasSize(3); // setUp에서 가입 알림 받음
+        assertThat(responses.getTotalElements()).isEqualTo(3); // setUp에서 가입 알림 받음
+        assertThat(responses.getContent()).hasSize(3);
     }
 
     @Test
@@ -136,11 +140,11 @@ class NotificationServiceTest {
         notificationRepository.save(Notification.createNotification("content2", NotificationType.GROUP_TODAY_AUTH_REQUEST, user, leader, savedGroup));
 
         // when
-        List<NotificationResponse> responses = notificationService.getNotificationsByNotificationType(leader.getId(), type);
+        Page<NotificationResponse> responses = notificationService.getNotificationsByNotificationType(leader.getId(), type, PageRequest.of(0, 10, Sort.by("createdAt").descending()));
 
         // then
-        assertThat(responses).hasSize(1);
-        assertThat(responses.get(0).getNotificationType()).isEqualTo(type);
+        assertThat(responses.getTotalElements()).isEqualTo(1);
+        assertThat(responses.getContent().get(0).getNotificationType()).isEqualTo(type);
     }
 
     @Test

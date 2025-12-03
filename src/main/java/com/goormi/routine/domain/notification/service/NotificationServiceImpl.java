@@ -11,6 +11,8 @@ import com.goormi.routine.domain.notification.repository.NotificationRepository;
 import com.goormi.routine.domain.user.entity.User;
 import com.goormi.routine.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -104,16 +106,16 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<NotificationResponse> getNotificationsByReceiver(Long receiverId) {
-        List<Notification> notifications = notificationRepository.findByReceiver_IdOrderByCreatedAtDesc(receiverId);
-        return notifications.stream().map(NotificationResponse::from).toList();
+    public Page<NotificationResponse> getNotificationsByReceiver(Long receiverId, Pageable pageable) {
+        Page<Notification> notifications = notificationRepository.findByReceiver_IdOrderByCreatedAtDesc(receiverId, pageable);
+        return notifications.map(NotificationResponse::from);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<NotificationResponse> getNotificationsByNotificationType(Long receiverId, NotificationType notificationType) {
-        List<Notification> notifications = notificationRepository.findByReceiver_IdAndNotificationType(receiverId, notificationType);
-        return notifications.stream().map(NotificationResponse::from).toList();
+    public Page<NotificationResponse> getNotificationsByNotificationType(Long receiverId, NotificationType notificationType, Pageable pageable) {
+        Page<Notification> notifications = notificationRepository.findByReceiver_IdAndNotificationType(receiverId, notificationType, pageable);
+        return notifications.map(NotificationResponse::from);
     }
 
     @Override
